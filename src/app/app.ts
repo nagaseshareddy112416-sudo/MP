@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
 import { MatDividerModule } from '@angular/material/divider';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { AuthService } from './core/services/auth.service';
 import { WorkspaceService } from './core/services/workspace.service';
 import { Workspace } from './core/models/models';
@@ -16,7 +17,7 @@ import { Workspace } from './core/models/models';
   standalone: true,
   imports: [
     CommonModule, RouterModule, MatToolbarModule, MatButtonModule,
-    MatIconModule, MatMenuModule, MatSelectModule, MatDividerModule
+    MatIconModule, MatMenuModule, MatSelectModule, MatDividerModule, MatTooltipModule
   ],
   template: `
     <div class="app-layout">
