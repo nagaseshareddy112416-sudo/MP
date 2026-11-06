@@ -62,3 +62,4 @@ export class WorkspaceService {
     return this.http.post<CategoryFieldConfig>(`${this.apiUrl}/${workspaceId}/categories/${categoryName}/fields`, field);
   }
 }
+

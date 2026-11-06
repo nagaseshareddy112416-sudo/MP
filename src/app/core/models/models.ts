@@ -147,3 +147,4 @@ export interface DashboardStats {
   }[];
   recentUploads: Drawing[];
 }
+

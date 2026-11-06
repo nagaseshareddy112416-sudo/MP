@@ -204,3 +204,4 @@ export class ClashesListComponent implements OnInit {
     this.router.navigate(['/map']);
   }
 }
+

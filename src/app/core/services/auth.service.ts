@@ -92,3 +92,4 @@ export class AuthService {
     return user.roles.some(r => r.workspaceId === ws.id && (r.role === 'WorkspaceAdmin' || r.role === 'Reviewer'));
   }
 }
+

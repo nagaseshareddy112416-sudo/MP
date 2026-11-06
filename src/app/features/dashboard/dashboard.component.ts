@@ -230,3 +230,4 @@ export class DashboardComponent implements OnInit {
     return Object.keys(obj || {}).map(k => ({ key: k, val: obj[k] }));
   }
 }
+

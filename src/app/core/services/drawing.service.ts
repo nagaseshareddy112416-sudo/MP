@@ -93,3 +93,4 @@ export class DrawingService {
     return `${this.apiUrl}/workspaces/${workspaceId}/clashes/export-csv`;
   }
 }
+
