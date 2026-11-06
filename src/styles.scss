@@ -1,0 +1,39 @@
+@import '@angular/material/prebuilt-themes/indigo-pink.css';
+@import 'ol/ol.css';
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+  background-color: #f5f7fa;
+  color: #333333;
+}
+
+.map-container {
+  width: 100%;
+  height: calc(100vh - 64px);
+  position: relative;
+}
+
+/* Custom OpenLayers tooltip / control styling */
+.ol-mouse-position {
+  top: auto;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: monospace;
+  font-size: 11px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.ol-scale-line {
+  background: rgba(255, 255, 255, 0.85);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.ol-scale-line-inner {
+  color: #222;
+  border-color: #222;
+}
