@@ -93,7 +93,7 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
                 </td>
                 <td>
                   <div class="row-actions">
-                    <a *ngIf="isApproved(d)" mat-raised-button color="primary" routerLink="/map" matTooltip="View this drawing on the map">
+                    <a *ngIf="isApproved(d)" mat-raised-button color="primary" [routerLink]="['/map']" [queryParams]="{ drawingId: d.id }" matTooltip="View this drawing on the map">
                       <mat-icon>map</mat-icon> View on Map
                     </a>
                     <button *ngIf="!isApproved(d)" mat-raised-button color="accent" (click)="quickApprove(d)" matTooltip="Approve and activate this drawing on the map">

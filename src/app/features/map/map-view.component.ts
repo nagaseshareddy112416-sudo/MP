@@ -1,6 +1,7 @@
 import { Component, OnInit, AfterViewInit, OnDestroy, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
@@ -9,6 +10,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 
 import OlMap from 'ol/Map';
 import View from 'ol/View';
@@ -25,6 +27,7 @@ import { ScaleLine, defaults as defaultControls } from 'ol/control';
 import { Style, Stroke, Fill, Circle as CircleStyle, Text } from 'ol/style';
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
+import { createEmpty, extend } from 'ol/extent';
 
 import { AuthService } from '../../core/services/auth.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
@@ -41,7 +44,7 @@ register(proj4);
   standalone: true,
   imports: [
     CommonModule, FormsModule, MatButtonModule, MatIconModule, MatButtonToggleModule,
-    MatCardModule, MatTooltipModule, MatCheckboxModule, MatFormFieldModule, MatInputModule
+    MatCardModule, MatTooltipModule, MatCheckboxModule, MatFormFieldModule, MatInputModule, MatSelectModule
   ],
   template: `
     <div class="map-wrapper">
@@ -75,6 +78,19 @@ register(proj4);
             </mat-checkbox>
           </div>
 
+          <!-- Drawing Focus / Selector -->
+          <div class="drawing-select-section" *ngIf="availableDrawings.length > 0">
+            <div class="sub-header">Focus Specific Drawing</div>
+            <mat-form-field appearance="outline" class="full-width-field" subscriptSizing="dynamic">
+              <mat-select [ngModel]="targetDrawingId" (selectionChange)="selectDrawingFilter($event.value)" placeholder="All Drawings">
+                <mat-option [value]="null">All Drawings (Show All)</mat-option>
+                <mat-option *ngFor="let d of availableDrawings" [value]="d.id">
+                  {{ d.name }} ({{ d.featureCount }})
+                </mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+
           <div class="compare-mode-section">
             <div class="sub-header">Stage / Compare Mode</div>
             <mat-button-toggle-group [(ngModel)]="compareMode" (change)="onCompareModeChange($event.value)" size="small" class="compare-toggle-group">
@@ -105,6 +121,15 @@ register(proj4);
             </button>
           </div>
         </mat-card>
+      </div>
+
+      <!-- Focus Drawing Floating Banner (Top Center) -->
+      <div *ngIf="targetDrawingId" class="drawing-focus-banner">
+        <mat-icon class="focus-icon">filter_center_focus</mat-icon>
+        <span class="focus-title">Focusing on: <strong>{{ selectedDrawingName }}</strong></span>
+        <button mat-button color="primary" (click)="selectDrawingFilter(null)" class="clear-btn">
+          <mat-icon>zoom_out_map</mat-icon> Show All
+        </button>
       </div>
 
       <!-- Map Div -->
@@ -339,6 +364,51 @@ register(proj4);
       z-index: 10;
       pointer-events: none;
     }
+    .drawing-focus-banner {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ffffff;
+      color: #1976d2;
+      padding: 6px 16px;
+      border-radius: 30px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 15;
+      font-size: 14px;
+      border: 1px solid #bbdefb;
+    }
+    .focus-icon {
+      font-size: 20px;
+      height: 20px;
+      width: 20px;
+      color: #1976d2;
+    }
+    .focus-title {
+      font-weight: 500;
+      color: #333;
+    }
+    .focus-title strong {
+      color: #1565c0;
+    }
+    .clear-btn {
+      margin-left: 8px;
+      font-size: 12px;
+      line-height: 28px;
+      height: 28px;
+    }
+    .drawing-select-section {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+    }
+    .full-width-field {
+      width: 100%;
+      margin-top: 4px;
+    }
     .feature-popup {
       position: absolute;
       bottom: 60px;
@@ -393,13 +463,26 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   uploadingRef = false;
   refUploadError = '';
 
+  targetDrawingId: string | null = null;
+  selectedDrawingName = '';
+  availableDrawings: { id: string; name: string; featureCount: number }[] = [];
+
   constructor(
     public authService: AuthService,
     private workspaceService: WorkspaceService,
-    private drawingService: DrawingService
+    private drawingService: DrawingService,
+    private route: ActivatedRoute,
+    private router: Router
   ) {}
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    this.route.queryParams.subscribe(params => {
+      this.targetDrawingId = params['drawingId'] || null;
+      if (this.featuresSource && this.featuresSource.getFeatures().length > 0) {
+        this.applyDrawingFilterOrZoom();
+      }
+    });
+  }
 
   ngAfterViewInit(): void {
     this.initMap();
@@ -551,8 +634,26 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
           this.featuresSource.addFeatures(olFeatures);
           this.featureCount = olFeatures.length;
 
+          // Group features by drawing for the selector
+          const drawingMap = new Map<string, { name: string; count: number }>();
+          for (const f of olFeatures) {
+            const dId = f.get('drawingId');
+            const pName = f.get('projectName') || 'Drawing';
+            if (dId) {
+              if (!drawingMap.has(dId)) {
+                drawingMap.set(dId, { name: pName, count: 0 });
+              }
+              drawingMap.get(dId)!.count++;
+            }
+          }
+          this.availableDrawings = Array.from(drawingMap.entries()).map(([id, info]) => ({
+            id,
+            name: info.name,
+            featureCount: info.count
+          }));
+
           if (olFeatures.length > 0) {
-            setTimeout(() => this.zoomToExtent(), 200);
+            setTimeout(() => this.applyDrawingFilterOrZoom(), 200);
           }
         }
       },
@@ -702,6 +803,46 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  applyDrawingFilterOrZoom(): void {
+    if (this.targetDrawingId) {
+      const matching = this.featuresSource.getFeatures().filter(f => f.get('drawingId') === this.targetDrawingId);
+      if (matching.length > 0) {
+        this.selectedDrawingName = matching[0].get('projectName') || 'Selected Drawing';
+        this.selectedFeatureProps = matching[0].getProperties();
+
+        const extent = createEmpty();
+        matching.forEach(f => {
+          const geom = f.getGeometry();
+          if (geom) extend(extent, geom.getExtent());
+        });
+
+        if (!isNaN(extent[0]) && isFinite(extent[0])) {
+          this.map.getView().fit(extent, {
+            padding: [100, 100, 100, 100],
+            maxZoom: 18,
+            duration: 900
+          });
+        }
+        this.featuresLayer.changed();
+        return;
+      }
+    }
+
+    this.selectedDrawingName = '';
+    this.zoomToExtent();
+    this.featuresLayer.changed();
+  }
+
+  selectDrawingFilter(drawingId: string | null): void {
+    this.targetDrawingId = drawingId;
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: drawingId ? { drawingId } : {},
+      queryParamsHandling: 'replace'
+    });
+    this.applyDrawingFilterOrZoom();
+  }
+
   onCompareModeChange(mode: 'all' | 'gfc' | 'asbuilt'): void {
     this.compareMode = mode;
     this.featuresLayer.changed();
@@ -721,6 +862,16 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
       });
     }
 
+    // Check if a specific drawing is being focused
+    const isTarget = !this.targetDrawingId || feature.get('drawingId') === this.targetDrawingId;
+    if (this.targetDrawingId && !isTarget) {
+      // Dim features that don't belong to the focused drawing
+      return new Style({
+        stroke: new Stroke({ color: 'rgba(180, 180, 180, 0.25)', width: 1 }),
+        fill: new Fill({ color: 'rgba(220, 220, 220, 0.08)' })
+      });
+    }
+
     // If As-Built feature, highlight distinctly
     if (isAsBuilt) {
       const status = String(feature.get('complianceStatus') || '').toLowerCase();
@@ -730,9 +881,9 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
       else if (status.includes('deviation')) abColor = '#d32f2f'; // Red
 
       return new Style({
-        stroke: new Stroke({ color: abColor, width: 4 }),
+        stroke: new Stroke({ color: abColor, width: this.targetDrawingId ? 5 : 4 }),
         image: new CircleStyle({
-          radius: 7,
+          radius: this.targetDrawingId ? 9 : 7,
           fill: new Fill({ color: abColor }),
           stroke: new Stroke({ color: '#ffffff', width: 2 })
         })
@@ -743,25 +894,26 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     const layer = feature.get('layer') || '';
 
     let color = '#333333';
-    let width = 2;
+    let width = this.targetDrawingId ? 4 : 2;
 
-    if (layer === 'ROAD_CL') { color = '#000000'; width = 3; }
-    else if (layer === 'ROAD_EDGE') { color = '#666666'; width = 2; }
-    else if (layer === 'WATER_MAIN') { color = '#1f77ff'; width = 3; }
-    else if (layer === 'SEWER_LINE') { color = '#8b4513'; width = 3; }
-    else if (layer === 'STORM_DRAIN') { color = '#2ca02c'; width = 3; }
-    else if (layer === 'POWER_CABLE') { color = '#e63946'; width = 2; }
+    if (layer === 'ROAD_CL') { color = '#000000'; width = this.targetDrawingId ? 5 : 3; }
+    else if (layer === 'ROAD_EDGE') { color = '#666666'; width = this.targetDrawingId ? 3 : 2; }
+    else if (layer === 'WATER_MAIN') { color = '#1f77ff'; width = this.targetDrawingId ? 5 : 3; }
+    else if (layer === 'SEWER_LINE') { color = '#8b4513'; width = this.targetDrawingId ? 5 : 3; }
+    else if (layer === 'STORM_DRAIN') { color = '#2ca02c'; width = this.targetDrawingId ? 5 : 3; }
+    else if (layer === 'POWER_CABLE') { color = '#e63946'; width = this.targetDrawingId ? 4 : 2; }
     else if (layer === 'BLDG_FOOTPRINT') {
+      const isFocused = this.targetDrawingId && isTarget;
       return new Style({
-        fill: new Fill({ color: 'rgba(108, 117, 125, 0.4)' }),
-        stroke: new Stroke({ color: '#6c757d', width: 2 })
+        fill: new Fill({ color: isFocused ? 'rgba(25, 118, 210, 0.5)' : 'rgba(33, 150, 243, 0.3)' }),
+        stroke: new Stroke({ color: isFocused ? '#0d47a1' : '#1976d2', width: isFocused ? 4 : 2.5 })
       });
     } else if (layer === 'CHAINAGE') {
       return new Style({
         image: new CircleStyle({
-          radius: 5,
+          radius: this.targetDrawingId ? 7 : 5,
           fill: new Fill({ color: '#ff9800' }),
-          stroke: new Stroke({ color: '#ffffff', width: 1 })
+          stroke: new Stroke({ color: '#ffffff', width: 1.5 })
         })
       });
     }

@@ -420,8 +420,63 @@ export class UploadDrawingComponent implements OnInit {
       this.selectedFile = file;
       this.previewData = null;
       this.errorMessage = '';
+      const baseName = file.name.replace(/\.[^/.]+$/, '');
       if (!this.form.projectName) {
-        this.form.projectName = file.name.replace(/\.[^/.]+$/, '');
+        this.form.projectName = baseName;
+      }
+      this.autoDetectCategory(baseName);
+    }
+  }
+
+  private autoDetectCategory(name: string): void {
+    const upper = name.toUpperCase();
+    if (upper.includes('BUILDING')) {
+      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'building');
+      if (match) {
+        this.form.category = match;
+        this.onCategoryChange(match);
+        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('footprint'));
+        if (sub) this.form.subType = sub;
+      }
+    } else if (upper.includes('WATER')) {
+      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
+      if (match) {
+        this.form.category = match;
+        this.onCategoryChange(match);
+        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('water'));
+        if (sub) this.form.subType = sub;
+      }
+    } else if (upper.includes('SEWER')) {
+      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
+      if (match) {
+        this.form.category = match;
+        this.onCategoryChange(match);
+        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('sewer'));
+        if (sub) this.form.subType = sub;
+      }
+    } else if (upper.includes('STORM')) {
+      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
+      if (match) {
+        this.form.category = match;
+        this.onCategoryChange(match);
+        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('storm'));
+        if (sub) this.form.subType = sub;
+      }
+    } else if (upper.includes('POWER')) {
+      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
+      if (match) {
+        this.form.category = match;
+        this.onCategoryChange(match);
+        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('power'));
+        if (sub) this.form.subType = sub;
+      }
+    } else if (upper.includes('ROAD')) {
+      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'road');
+      if (match) {
+        this.form.category = match;
+        this.onCategoryChange(match);
+        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('centerline'));
+        if (sub) this.form.subType = sub;
       }
     }
   }
