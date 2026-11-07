@@ -102,6 +102,9 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
                     <button mat-stroked-button (click)="viewRevisions(d)">
                       <mat-icon>history</mat-icon> Revisions
                     </button>
+                    <button mat-icon-button color="warn" (click)="deleteDrawing(d)" matTooltip="Delete drawing from database">
+                      <mat-icon>delete_outline</mat-icon>
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -438,6 +441,24 @@ export class RevisionHistoryComponent implements OnInit {
         this.loadDrawings();
         this.viewRevisions(this.selectedDrawing!);
         setTimeout(() => this.message = '', 4000);
+      }
+    });
+  }
+
+  deleteDrawing(drawing: Drawing): void {
+    if (!this.workspace) return;
+    if (!confirm(`Are you sure you want to permanently delete drawing '${drawing.projectName}' and all its data from the database?`)) {
+      return;
+    }
+
+    this.drawingService.deleteDrawing(this.workspace.id, drawing.id).subscribe({
+      next: (res) => {
+        this.message = res.message || `Drawing '${drawing.projectName}' was deleted from the database.`;
+        this.loadDrawings();
+        setTimeout(() => this.message = '', 5000);
+      },
+      error: (err) => {
+        this.message = err.error?.message || 'Failed to delete drawing.';
       }
     });
   }

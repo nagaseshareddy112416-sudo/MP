@@ -37,6 +37,10 @@ export class DrawingService {
     return this.http.post<Drawing>(`${this.apiUrl}/workspaces/${workspaceId}/drawings/upload`, formData);
   }
 
+  deleteDrawing(workspaceId: string, drawingId: string): Observable<any> {
+    return this.http.delete(`${this.apiUrl}/workspaces/${workspaceId}/drawings/${drawingId}`);
+  }
+
   setPinLocation(workspaceId: string, drawingId: string, lon: number, lat: number): Observable<any> {
     return this.http.post(`${this.apiUrl}/workspaces/${workspaceId}/drawings/${drawingId}/pin`, { lon, lat });
   }
