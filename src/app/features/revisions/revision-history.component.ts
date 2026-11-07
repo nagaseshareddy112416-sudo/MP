@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule, Router } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,7 +10,9 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { DrawingService } from '../../core/services/drawing.service';
+import { WorkspaceService } from '../../core/services/workspace.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
 
@@ -17,30 +20,48 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
   selector: 'app-revision-history',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, MatCardModule, MatTableModule, MatButtonModule,
-    MatIconModule, MatChipsModule, MatDialogModule, MatFormFieldModule, MatInputModule
+    CommonModule, FormsModule, RouterModule, MatCardModule, MatTableModule, MatButtonModule,
+    MatIconModule, MatChipsModule, MatDialogModule, MatFormFieldModule, MatInputModule, MatTooltipModule
   ],
   template: `
     <div class="revisions-container">
       <div class="header-row">
         <div>
           <h2>Drawings & Revision Approval Queue</h2>
-          <p class="subtitle" *ngIf="workspace">Workspace: {{ workspace.name }}</p>
+          <p class="subtitle" *ngIf="workspace">Workspace: <strong>{{ workspace.name }}</strong></p>
         </div>
-        <button mat-stroked-button (click)="loadDrawings()">
-          <mat-icon>refresh</mat-icon> Refresh
-        </button>
+        <div class="header-actions">
+          <a mat-raised-button color="accent" routerLink="/map">
+            <mat-icon>map</mat-icon> Open Web Map
+          </a>
+          <button mat-stroked-button (click)="loadDrawings()">
+            <mat-icon>refresh</mat-icon> Refresh
+          </button>
+        </div>
       </div>
 
       <div *ngIf="message" class="info-banner">{{ message }}</div>
 
-      <mat-card class="content-card">
+      <!-- Empty State -->
+      <mat-card *ngIf="drawings.length === 0" class="empty-card">
+        <mat-icon class="empty-icon">layers_clear</mat-icon>
+        <h3>No Drawings in Queue</h3>
+        <p>No Good For Construction (GFC) drawings have been uploaded for this workspace yet.</p>
+        <a mat-raised-button color="primary" routerLink="/upload">
+          <mat-icon>cloud_upload</mat-icon> Upload GFC Drawing
+        </a>
+      </mat-card>
+
+      <!-- Drawings Table -->
+      <mat-card *ngIf="drawings.length > 0" class="content-card">
         <table mat-table [dataSource]="drawings" class="drawings-table">
           <ng-container mat-columnDef="project">
             <th mat-header-cell *matHeaderCellDef> Project Drawing </th>
             <td mat-cell *matCellDef="let d">
-              <strong>{{ d.projectName }}</strong>
-              <div class="file-name">{{ d.originalFileName }} ({{ d.fileType }})</div>
+              <div class="project-cell">
+                <strong>{{ d.projectName }}</strong>
+                <div class="file-name">{{ d.originalFileName }} ({{ d.fileType }})</div>
+              </div>
             </td>
           </ng-container>
 
@@ -61,18 +82,18 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
           <ng-container mat-columnDef="processing">
             <th mat-header-cell *matHeaderCellDef> Processing </th>
             <td mat-cell *matCellDef="let d">
-              <span class="status-chip" [ngClass]="d.processingStatus?.toLowerCase()">
-                {{ d.processingStatus }}
+              <span class="status-chip" [ngClass]="getStatusClass(d.processingStatus)">
+                {{ d.processingStatus || 'Completed' }}
               </span>
               <div *ngIf="d.processingError" class="error-text">{{ d.processingError }}</div>
             </td>
           </ng-container>
 
           <ng-container mat-columnDef="status">
-            <th mat-header-cell *matHeaderCellDef> Review Status </th>
+            <th mat-header-cell *matHeaderCellDef> Map & Review Status </th>
             <td mat-cell *matCellDef="let d">
-              <span class="status-chip" [ngClass]="d.reviewStatus?.toLowerCase()">
-                {{ d.reviewStatus }}
+              <span class="status-chip" [ngClass]="getStatusClass(d.reviewStatus)">
+                {{ getReviewStatusText(d.reviewStatus) }}
               </span>
             </td>
           </ng-container>
@@ -80,9 +101,17 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
           <ng-container mat-columnDef="actions">
             <th mat-header-cell *matHeaderCellDef> Actions </th>
             <td mat-cell *matCellDef="let d">
-              <button mat-button color="primary" (click)="viewRevisions(d)">
-                <mat-icon>history</mat-icon> Revisions
-              </button>
+              <div class="row-actions">
+                <a *ngIf="isApproved(d)" mat-raised-button color="primary" routerLink="/map" matTooltip="View this drawing on the map">
+                  <mat-icon>map</mat-icon> View on Map
+                </a>
+                <button *ngIf="!isApproved(d)" mat-raised-button color="accent" (click)="quickApprove(d)" matTooltip="Approve and activate this drawing on the map">
+                  <mat-icon>check_circle</mat-icon> Approve to Map
+                </button>
+                <button mat-stroked-button (click)="viewRevisions(d)">
+                  <mat-icon>history</mat-icon> Revisions
+                </button>
+              </div>
             </td>
           </ng-container>
 
@@ -100,24 +129,31 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
           </mat-card-header>
 
           <mat-card-content>
-            <div *ngIf="revisions.length === 0" class="empty-state">No revisions loaded.</div>
+            <div *ngIf="revisions.length === 0" class="empty-state">No revisions found for this drawing.</div>
 
             <div *ngFor="let rev of revisions" class="rev-row" [class.active-rev]="rev.isActive">
               <div class="rev-info">
                 <span class="rev-badge">{{ rev.revisionNumber }}</span>
                 <span *ngIf="rev.isActive" class="active-tag">Active on Map</span>
-                <span class="status-chip" [ngClass]="rev.reviewStatus.toLowerCase()">{{ rev.reviewStatus }}</span>
+                <span class="status-chip" [ngClass]="getStatusClass(rev.reviewStatus)">{{ getReviewStatusText(rev.reviewStatus) }}</span>
                 <div class="rev-meta">
-                  Submitted by {{ rev.createdBy }} on {{ rev.createdAt | date:'short' }} &bull; {{ rev.featureCount }} features
+                  Submitted by {{ rev.createdBy || 'User' }} on {{ rev.createdAt | date:'short' }} &bull; {{ rev.featureCount }} features
                 </div>
                 <div *ngIf="rev.reviewComments" class="review-comments">
                   <em>Note: {{ rev.reviewComments }}</em>
                 </div>
               </div>
 
-              <div class="rev-actions" *ngIf="rev.reviewStatus === 'Pending'">
-                <button mat-raised-button color="primary" (click)="review(rev, true)">Approve</button>
-                <button mat-button color="warn" (click)="review(rev, false)">Reject</button>
+              <div class="rev-actions">
+                <button *ngIf="!rev.isActive" mat-raised-button color="primary" (click)="review(rev, true)">
+                  <mat-icon>check</mat-icon> Approve to Map
+                </button>
+                <button *ngIf="!rev.isActive" mat-button color="warn" (click)="review(rev, false)">
+                  <mat-icon>close</mat-icon> Reject
+                </button>
+                <a *ngIf="rev.isActive" mat-raised-button color="accent" routerLink="/map">
+                  <mat-icon>map</mat-icon> View on Map
+                </a>
               </div>
             </div>
 
@@ -141,6 +177,10 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
       align-items: center;
       margin-bottom: 24px;
     }
+    .header-actions {
+      display: flex;
+      gap: 12px;
+    }
     .subtitle {
       color: #666;
       margin-top: -6px;
@@ -148,33 +188,65 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
     .content-card {
       padding: 0;
       overflow: hidden;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+    .empty-card {
+      padding: 48px;
+      text-align: center;
+      border-radius: 12px;
+    }
+    .empty-icon {
+      font-size: 64px;
+      width: 64px;
+      height: 64px;
+      color: #9e9e9e;
+      margin-bottom: 12px;
     }
     .drawings-table {
       width: 100%;
+    }
+    .project-cell {
+      padding: 8px 0;
     }
     .file-name {
       font-size: 11px;
       color: #888;
       font-family: monospace;
+      margin-top: 2px;
     }
     .badge-rev {
       background: #e0e0e0;
-      padding: 2px 8px;
+      padding: 3px 8px;
       border-radius: 4px;
       font-weight: 600;
       font-size: 12px;
     }
+    .category-chip {
+      background: #e3f2fd;
+      color: #1565c0;
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 500;
+    }
     .status-chip {
-      padding: 3px 8px;
+      padding: 4px 10px;
       border-radius: 12px;
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
+      display: inline-block;
     }
     .status-chip.approved, .status-chip.completed { background: #e8f5e9; color: #2e7d32; }
-    .status-chip.pending, .status-chip.queued { background: #fff8e1; color: #f57f17; }
+    .status-chip.pending, .status-chip.pendingreview, .status-chip.queued { background: #fff8e1; color: #f57f17; }
     .status-chip.rejected, .status-chip.failed { background: #ffebee; color: #c62828; }
     .status-chip.processing { background: #e3f2fd; color: #1565c0; }
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
     .error-text {
       color: #c62828;
       font-size: 11px;
@@ -183,9 +255,11 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
     .info-banner {
       background: #e8f5e9;
       color: #2e7d32;
-      padding: 12px;
+      border-left: 4px solid #2e7d32;
+      padding: 14px 16px;
       border-radius: 4px;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
+      font-weight: 500;
     }
     .modal-backdrop {
       position: fixed;
@@ -198,29 +272,31 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
     }
     .modal-card {
       width: 100%;
-      max-width: 600px;
+      max-width: 650px;
       max-height: 80vh;
       overflow-y: auto;
-      padding: 20px;
+      padding: 24px;
+      border-radius: 12px;
     }
     .rev-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px;
+      padding: 16px;
       border-bottom: 1px solid #eee;
     }
     .active-rev {
       background: #f1f8e9;
-      border-radius: 6px;
+      border-radius: 8px;
     }
     .active-tag {
       background: #4caf50;
       color: white;
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 4px;
-      margin-left: 8px;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 6px;
     }
     .rev-meta {
       font-size: 12px;
@@ -229,7 +305,7 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
     }
     .review-comments {
       font-size: 12px;
-      color: #555;
+      color: #444;
       margin-top: 4px;
     }
     .rev-actions {
@@ -239,7 +315,7 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
     .modal-footer {
       display: flex;
       justify-content: flex-end;
-      margin-top: 16px;
+      margin-top: 20px;
     }
   `]
 })
@@ -253,20 +329,73 @@ export class RevisionHistoryComponent implements OnInit {
 
   constructor(
     private drawingService: DrawingService,
-    public authService: AuthService
+    private workspaceService: WorkspaceService,
+    public authService: AuthService,
+    private router: Router
   ) {}
 
   ngOnInit(): void {
     this.workspace = this.authService.activeWorkspace();
     if (this.workspace) {
       this.loadDrawings();
+    } else {
+      this.workspaceService.getWorkspaces().subscribe({
+        next: (wsList) => {
+          if (wsList.length > 0) {
+            this.authService.setActiveWorkspace(wsList[0]);
+            this.workspace = wsList[0];
+            this.loadDrawings();
+          }
+        }
+      });
     }
   }
 
   loadDrawings(): void {
     if (!this.workspace) return;
     this.drawingService.getDrawings(this.workspace.id).subscribe({
-      next: (data) => this.drawings = data
+      next: (data) => {
+        this.drawings = data;
+      }
+    });
+  }
+
+  isApproved(d: Drawing): boolean {
+    const s = String(d.reviewStatus);
+    return s === 'Approved' || s === '1';
+  }
+
+  getStatusClass(val: any): string {
+    const s = String(val ?? '').toLowerCase();
+    if (s === '1' || s.includes('approved') || s.includes('completed')) return 'approved';
+    if (s === '0' || s.includes('pending') || s.includes('queued')) return 'pending';
+    if (s === '2' || s.includes('rejected') || s.includes('failed')) return 'rejected';
+    return s;
+  }
+
+  getReviewStatusText(val: any): string {
+    const s = String(val ?? '');
+    if (s === '0' || s.toLowerCase() === 'pendingreview') return 'Pending Review';
+    if (s === '1' || s.toLowerCase() === 'approved') return 'Approved (On Map)';
+    if (s === '2' || s.toLowerCase() === 'rejected') return 'Rejected';
+    return s;
+  }
+
+  quickApprove(drawing: Drawing): void {
+    if (!this.workspace) return;
+    this.drawingService.getRevisions(this.workspace.id, drawing.id).subscribe({
+      next: (revs) => {
+        const pendingRev = revs.find(r => !r.isActive) || revs[0];
+        if (pendingRev) {
+          this.drawingService.reviewRevision(this.workspace!.id, drawing.id, pendingRev.id, true, 'Approved').subscribe({
+            next: (res) => {
+              this.message = `Drawing '${drawing.projectName}' has been approved and is now active on the map!`;
+              this.loadDrawings();
+              setTimeout(() => this.message = '', 5000);
+            }
+          });
+        }
+      }
     });
   }
 
