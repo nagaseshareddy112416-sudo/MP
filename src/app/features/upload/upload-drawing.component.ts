@@ -12,7 +12,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { DrawingService } from '../../core/services/drawing.service';
 import { AuthService } from '../../core/services/auth.service';
-import { CategoryConfig, CategoryFieldConfig, Workspace } from '../../core/models/models';
+import { CategoryConfig, CategoryFieldConfig, Workspace, DrawingStage, Drawing } from '../../core/models/models';
 
 @Component({
   selector: 'app-upload-drawing',
@@ -76,10 +76,16 @@ import { CategoryConfig, CategoryFieldConfig, Workspace } from '../../core/model
               </mat-form-field>
 
               <mat-form-field appearance="outline">
-                <mat-label>Status</mat-label>
+                <mat-label>Drawing Stage</mat-label>
+                <mat-select [(ngModel)]="form.stageId" name="stageId" (selectionChange)="onStageChange($event.value)">
+                  <mat-option *ngFor="let s of stages" [value]="s.id">{{ s.name }}</mat-option>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Construction Status</mat-label>
                 <mat-select [(ngModel)]="form.status" name="status">
-                  <mat-option value="Design">Design</mat-option>
-                  <mat-option value="Approved">Approved</mat-option>
+                  <mat-option value="Design">Not Started (Design)</mat-option>
                   <mat-option value="UnderConstruction">Under Construction</mat-option>
                   <mat-option value="Completed">Completed</mat-option>
                 </mat-select>
@@ -89,6 +95,39 @@ import { CategoryConfig, CategoryFieldConfig, Workspace } from '../../core/model
                 <mat-label>Source CRS (EPSG)</mat-label>
                 <input matInput type="number" [(ngModel)]="form.sourceEpsg" name="sourceEpsg" [placeholder]="workspace?.defaultEpsg?.toString() || '32644'">
               </mat-form-field>
+            </div>
+
+            <!-- As-Built Linkage & Coordinates Section -->
+            <div *ngIf="isAsBuiltStage()" class="asbuilt-section">
+              <h4>As-Built Drawing Linkage & Coordinate Source</h4>
+              <div class="form-grid">
+                <mat-form-field appearance="outline">
+                  <mat-label>Baseline GFC Drawing</mat-label>
+                  <mat-select [(ngModel)]="form.gfcDrawingId" name="gfcDrawingId" required>
+                    <mat-option *ngFor="let g of gfcDrawings" [value]="g.id">
+                      {{ g.projectName }} (Rev {{ g.currentRevision }} - {{ g.category }})
+                    </mat-option>
+                  </mat-select>
+                </mat-form-field>
+
+                <mat-form-field appearance="outline">
+                  <mat-label>Source of Coordinates</mat-label>
+                  <mat-select [(ngModel)]="form.sourceOfCoordinates" name="sourceOfCoordinates">
+                    <mat-option value="Survey">Survey (Total Station / GNSS / Field RTK)</mat-option>
+                    <mat-option value="Redrawn">Redrawn (CAD Digitization / Overlay)</mat-option>
+                    <mat-option value="Unknown">Unknown</mat-option>
+                  </mat-select>
+                </mat-form-field>
+              </div>
+
+              <!-- Visible Warning for Redrawn / Unknown -->
+              <div *ngIf="form.sourceOfCoordinates === 'Redrawn' || form.sourceOfCoordinates === 'Unknown'" class="warning-banner">
+                <mat-icon>warning</mat-icon>
+                <span>
+                  <strong>Coordinate Source Warning:</strong> Coordinates are marked as <em>{{ form.sourceOfCoordinates }}</em> (non-survey).
+                  This as-built submission will be flagged with a non-survey warning in all compliance reports and audit logs.
+                </span>
+              </div>
             </div>
 
             <!-- Dynamic Category-Specific Form Fields -->
@@ -212,6 +251,25 @@ import { CategoryConfig, CategoryFieldConfig, Workspace } from '../../core/model
       align-items: center;
       border-radius: 4px;
     }
+    .asbuilt-section {
+      background: #fbfbfd;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+    .warning-banner {
+      background: #fff8e1;
+      color: #b78103;
+      border: 1px solid #ffe082;
+      padding: 12px 16px;
+      border-radius: 8px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-top: 12px;
+      font-size: 13px;
+    }
     .preview-box {
       background: #e3f2fd;
       color: #1565c0;
@@ -240,6 +298,8 @@ export class UploadDrawingComponent implements OnInit {
   availableSubTypes: string[] = [];
   dynamicFields: CategoryFieldConfig[] = [];
   formDynamicValues: Record<string, any> = {};
+  stages: DrawingStage[] = [];
+  gfcDrawings: Drawing[] = [];
 
   selectedFile: File | null = null;
   uploading = false;
@@ -257,7 +317,11 @@ export class UploadDrawingComponent implements OnInit {
     sourceEpsg: 32644,
     contractor: '',
     consultant: '',
-    notes: ''
+    notes: '',
+    stageId: '',
+    stageName: 'GFC',
+    sourceOfCoordinates: 'Survey' as 'Survey' | 'Redrawn' | 'Unknown',
+    gfcDrawingId: ''
   };
 
   constructor(
@@ -272,7 +336,45 @@ export class UploadDrawingComponent implements OnInit {
     if (this.workspace) {
       this.form.sourceEpsg = this.workspace.defaultEpsg;
       this.loadCategories(this.workspace.id);
+      this.loadStages(this.workspace.id);
+      this.loadGfcDrawings(this.workspace.id);
     }
+  }
+
+  loadStages(wsId: string): void {
+    this.drawingService.getDrawingStages(wsId).subscribe({
+      next: (list) => {
+        this.stages = list;
+        const defaultStage = list.find(s => s.isGfcBaseline || s.isDefault) || list[0];
+        if (defaultStage) {
+          this.form.stageId = defaultStage.id;
+          this.form.stageName = defaultStage.name;
+        }
+      }
+    });
+  }
+
+  loadGfcDrawings(wsId: string): void {
+    this.drawingService.getDrawings(wsId).subscribe({
+      next: (list) => {
+        this.gfcDrawings = list.filter(d => !d.stageName?.toLowerCase().includes('as-built'));
+        if (this.gfcDrawings.length > 0 && !this.form.gfcDrawingId) {
+          this.form.gfcDrawingId = this.gfcDrawings[0].id;
+        }
+      }
+    });
+  }
+
+  onStageChange(stageId: string): void {
+    const stage = this.stages.find(s => s.id === stageId);
+    if (stage) {
+      this.form.stageName = stage.name;
+    }
+  }
+
+  isAsBuiltStage(): boolean {
+    const s = this.stages.find(st => st.id === this.form.stageId);
+    return !!(s?.isAsBuilt || this.form.stageName?.toLowerCase().includes('as-built'));
   }
 
   loadCategories(wsId: string): void {
@@ -355,6 +457,10 @@ export class UploadDrawingComponent implements OnInit {
     formData.append('revisionNumber', this.form.revisionNumber);
     formData.append('status', this.form.status);
     formData.append('sourceEpsg', this.form.sourceEpsg.toString());
+    if (this.form.stageId) formData.append('stageId', this.form.stageId);
+    if (this.form.stageName) formData.append('stageName', this.form.stageName);
+    if (this.form.sourceOfCoordinates) formData.append('sourceOfCoordinates', this.form.sourceOfCoordinates);
+    if (this.form.gfcDrawingId) formData.append('gfcDrawingId', this.form.gfcDrawingId);
 
     // Dynamic fields
     for (const key of Object.keys(this.formDynamicValues)) {

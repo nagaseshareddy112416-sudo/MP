@@ -84,6 +84,11 @@ export interface Drawing {
   createdAt: string;
   pinLon?: number;
   pinLat?: number;
+  stageId?: string;
+  stageName?: string;
+  sourceOfCoordinates?: 'Survey' | 'Redrawn' | 'Unknown';
+  gfcDrawingId?: string;
+  gfcRevisionId?: string;
 }
 
 export interface DrawingRevision {
@@ -146,5 +151,96 @@ export interface DashboardStats {
     status: string;
   }[];
   recentUploads: Drawing[];
+}
+
+export interface DrawingStage {
+  id: string;
+  workspaceId: string;
+  name: string;
+  stageOrder: number;
+  isDefault: boolean;
+  isGfcBaseline: boolean;
+  isAsBuilt: boolean;
+  description?: string;
+}
+
+export interface ToleranceRule {
+  id: string;
+  workspaceId: string;
+  category: string;
+  subType: string;
+  horizontalToleranceM: number;
+  verticalToleranceM: number;
+  lengthToleranceM: number;
+  attributeRulesJson?: string;
+  notes?: string;
+}
+
+export interface ComplianceResult {
+  id: string;
+  workspaceId: string;
+  asBuiltDrawingId: string;
+  asBuiltDrawingName?: string;
+  gfcDrawingId: string;
+  gfcDrawingName?: string;
+  gfcRevisionId: string;
+  gfcRevisionNumber?: string;
+  asBuiltFeatureId?: string;
+  gfcFeatureId?: string;
+  category: string;
+  subType: string;
+  chainageStart?: number;
+  chainageEnd?: number;
+  horizontalDeviationM: number;
+  averageHorizontalDeviationM: number;
+  verticalDeviationM: number;
+  lengthDeviationM: number;
+  attributeDiffsJson?: string;
+  status: 'Compliant' | 'WithinTolerance' | 'Deviation' | 'Missing' | 'Extra' | string;
+  computedAt: string;
+  sourceOfCoordinates?: 'Survey' | 'Redrawn' | 'Unknown';
+  hasNonSurveyWarning?: boolean;
+  deviations: Deviation[];
+}
+
+export interface Deviation {
+  id: string;
+  complianceResultId: string;
+  decision: 'Pending' | 'Accepted' | 'Rectify' | 'Rejected' | string;
+  reason?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  comment?: string;
+}
+
+export interface ReviewDeviationRequest {
+  decision: 'Accepted' | 'Rectify' | 'Rejected';
+  reason: string;
+  comment?: string;
+}
+
+export interface ComplianceSummary {
+  workspaceId: string;
+  totalFeatures: number;
+  compliantCount: number;
+  withinToleranceCount: number;
+  deviationCount: number;
+  missingCount: number;
+  extraCount: number;
+  compliancePercentage: number;
+  openDeviationsCount: number;
+  acceptedDeviationsCount: number;
+  byCategory: Record<string, CategoryCompliance>;
+}
+
+export interface CategoryCompliance {
+  category: string;
+  total: number;
+  compliant: number;
+  withinTolerance: number;
+  deviations: number;
+  missing: number;
+  extra: number;
+  compliancePercentage: number;
 }
 

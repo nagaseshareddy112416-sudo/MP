@@ -74,6 +74,15 @@ register(proj4);
             </mat-checkbox>
           </div>
 
+          <div class="compare-mode-section">
+            <div class="sub-header">Stage / Compare Mode</div>
+            <mat-button-toggle-group [(ngModel)]="compareMode" (change)="onCompareModeChange($event.value)" size="small" class="compare-toggle-group">
+              <mat-button-toggle value="all">All</mat-button-toggle>
+              <mat-button-toggle value="gfc">GFC Baseline</mat-button-toggle>
+              <mat-button-toggle value="asbuilt">As-Built</mat-button-toggle>
+            </mat-button-toggle-group>
+          </div>
+
           <div *ngIf="referenceLayers.length > 0" class="ref-layers-section">
             <div class="sub-header">Reference Layers</div>
             <div *ngFor="let ref of referenceLayers" class="ref-item-row">
@@ -163,6 +172,13 @@ register(proj4);
           <p *ngIf="selectedFeatureProps.diameter != null"><strong>Diameter:</strong> DN{{ selectedFeatureProps.diameter }}</p>
           <p *ngIf="selectedFeatureProps.material"><strong>Material:</strong> {{ selectedFeatureProps.material }}</p>
           <p><strong>Revision:</strong> {{ selectedFeatureProps.revision }}</p>
+          <p *ngIf="selectedFeatureProps.stageName"><strong>Stage:</strong> {{ selectedFeatureProps.stageName }}</p>
+          <div *ngIf="selectedFeatureProps.isAsBuilt" class="asbuilt-tag-row">
+            <span class="tag-asbuilt">As-Built Record</span>
+            <span *ngIf="selectedFeatureProps.constructionStatus" class="tag-status">
+              {{ selectedFeatureProps.constructionStatus }}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -234,6 +250,35 @@ register(proj4);
       justify-content: space-between;
       align-items: center;
       margin: 2px 0;
+    }
+    .compare-mode-section {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+    }
+    .compare-toggle-group {
+      width: 100%;
+      margin-top: 4px;
+    }
+    .asbuilt-tag-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .tag-asbuilt {
+      background: #7b1fa2;
+      color: white;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .tag-status {
+      background: #e0e0e0;
+      color: #333;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
     }
     .mini-btn {
       width: 28px;
@@ -330,6 +375,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   refLayers: Map<string, VectorLayer<VectorSource>> = new Map();
 
   currentBaseMap = 'osm';
+  compareMode: 'all' | 'gfc' | 'asbuilt' = 'all';
   showFeatures = true;
   showClashes = true;
   featureCount = 0;
@@ -629,7 +675,43 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  private getFeatureStyle(feature: any): Style {
+  onCompareModeChange(mode: 'all' | 'gfc' | 'asbuilt'): void {
+    this.compareMode = mode;
+    this.featuresLayer.changed();
+  }
+
+  private getFeatureStyle(feature: any): Style | undefined {
+    const isAsBuilt = feature.get('isAsBuilt') === true;
+
+    // Filter by compare mode
+    if (this.compareMode === 'gfc' && isAsBuilt) {
+      return undefined; // hide as-built
+    }
+    if (this.compareMode === 'asbuilt' && !isAsBuilt) {
+      // Subdued GFC baseline
+      return new Style({
+        stroke: new Stroke({ color: 'rgba(150, 150, 150, 0.4)', width: 1, lineDash: [4, 4] })
+      });
+    }
+
+    // If As-Built feature, highlight distinctly
+    if (isAsBuilt) {
+      const status = String(feature.get('complianceStatus') || '').toLowerCase();
+      let abColor = '#7b1fa2'; // Purple Extra / As-Built default
+      if (status.includes('compliant')) abColor = '#2e7d32'; // Green
+      else if (status.includes('tolerance')) abColor = '#f57f17'; // Amber
+      else if (status.includes('deviation')) abColor = '#d32f2f'; // Red
+
+      return new Style({
+        stroke: new Stroke({ color: abColor, width: 4 }),
+        image: new CircleStyle({
+          radius: 7,
+          fill: new Fill({ color: abColor }),
+          stroke: new Stroke({ color: '#ffffff', width: 2 })
+        })
+      });
+    }
+
     const cat = feature.get('category') || '';
     const layer = feature.get('layer') || '';
 

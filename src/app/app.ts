@@ -38,6 +38,9 @@ import { Workspace } from './core/models/models';
           <a mat-button routerLink="/revisions" routerLinkActive="active-link">
             <mat-icon>rate_review</mat-icon> Revisions
           </a>
+          <a mat-button routerLink="/compliance" routerLinkActive="active-link">
+            <mat-icon>verified</mat-icon> Compliance
+          </a>
           <a mat-button routerLink="/clashes" routerLinkActive="active-link">
             <mat-icon>warning</mat-icon> Clashes
           </a>

@@ -2,7 +2,11 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { Drawing, DrawingRevision, Clash, DashboardStats, ReferenceLayer } from '../models/models';
+import {
+  Drawing, DrawingRevision, Clash, DashboardStats, ReferenceLayer,
+  DrawingStage, ToleranceRule, ComplianceResult, Deviation,
+  ReviewDeviationRequest, ComplianceSummary
+} from '../models/models';
 
 @Injectable({
   providedIn: 'root'
@@ -91,6 +95,51 @@ export class DrawingService {
 
   exportClashesCsvUrl(workspaceId: string): string {
     return `${this.apiUrl}/workspaces/${workspaceId}/clashes/export-csv`;
+  }
+
+  // Phase 9: Drawing Stages & As-Built Compliance
+  getDrawingStages(workspaceId: string): Observable<DrawingStage[]> {
+    return this.http.get<DrawingStage[]>(`${this.apiUrl}/workspaces/${workspaceId}/stages`);
+  }
+
+  evaluateCompliance(workspaceId: string, asBuiltDrawingId: string): Observable<ComplianceResult[]> {
+    return this.http.post<ComplianceResult[]>(`${this.apiUrl}/workspaces/${workspaceId}/compliance/evaluate/${asBuiltDrawingId}`, {});
+  }
+
+  getComplianceResults(workspaceId: string, asBuiltDrawingId: string): Observable<ComplianceResult[]> {
+    return this.http.get<ComplianceResult[]>(`${this.apiUrl}/workspaces/${workspaceId}/compliance/results/${asBuiltDrawingId}`);
+  }
+
+  getComplianceSummary(workspaceId: string): Observable<ComplianceSummary> {
+    return this.http.get<ComplianceSummary>(`${this.apiUrl}/workspaces/${workspaceId}/compliance/summary`);
+  }
+
+  getToleranceRules(workspaceId: string): Observable<ToleranceRule[]> {
+    return this.http.get<ToleranceRule[]>(`${this.apiUrl}/workspaces/${workspaceId}/compliance/rules`);
+  }
+
+  updateToleranceRule(workspaceId: string, id: string, rule: Partial<ToleranceRule>): Observable<void> {
+    return this.http.put<void>(`${this.apiUrl}/workspaces/${workspaceId}/compliance/rules/${id}`, rule);
+  }
+
+  getDeviations(workspaceId: string, filter?: { category?: string; status?: string; decision?: string }): Observable<ComplianceResult[]> {
+    let params = new HttpParams();
+    if (filter?.category) params = params.set('category', filter.category);
+    if (filter?.status) params = params.set('status', filter.status);
+    if (filter?.decision) params = params.set('decision', filter.decision);
+    return this.http.get<ComplianceResult[]>(`${this.apiUrl}/workspaces/${workspaceId}/deviations`, { params });
+  }
+
+  reviewDeviation(workspaceId: string, deviationId: string, req: ReviewDeviationRequest): Observable<Deviation> {
+    return this.http.post<Deviation>(`${this.apiUrl}/workspaces/${workspaceId}/deviations/${deviationId}/decision`, req);
+  }
+
+  exportComplianceCsvUrl(workspaceId: string, asBuiltDrawingId: string): string {
+    return `${this.apiUrl}/workspaces/${workspaceId}/compliance/export/csv/${asBuiltDrawingId}`;
+  }
+
+  exportComplianceGeoJsonUrl(workspaceId: string, asBuiltDrawingId: string): string {
+    return `${this.apiUrl}/workspaces/${workspaceId}/compliance/export/geojson/${asBuiltDrawingId}`;
   }
 }
 
