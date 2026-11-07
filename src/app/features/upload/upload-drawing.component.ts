@@ -104,22 +104,6 @@ import { CategoryConfig, CategoryFieldConfig, Workspace } from '../../core/model
               </div>
             </div>
 
-            <!-- Level 1 Placement (Map Pin for PDF or ungeoreferenced files) -->
-            <div class="level1-section">
-              <h4>Georeference Placement</h4>
-              <p class="section-hint">DXF files are automatically placed using drawing coordinates. For PDFs or drawings without real coordinates, specify a pin location:</p>
-              <div class="form-grid">
-                <mat-form-field appearance="outline">
-                  <mat-label>Pin Longitude (°E)</mat-label>
-                  <input matInput type="number" step="0.0001" [(ngModel)]="form.pinX" name="pinX" placeholder="e.g. 80.516">
-                </mat-form-field>
-                <mat-form-field appearance="outline">
-                  <mat-label>Pin Latitude (°N)</mat-label>
-                  <input matInput type="number" step="0.0001" [(ngModel)]="form.pinY" name="pinY" placeholder="e.g. 16.513">
-                </mat-form-field>
-              </div>
-            </div>
-
             <!-- File Upload & Pre-submit Preview -->
             <div class="file-drop-zone">
               <input type="file" #fileInput (change)="onFileSelected($event)" accept=".dxf,.dwg,.pdf,.geojson,.zip" style="display:none">
@@ -271,8 +255,6 @@ export class UploadDrawingComponent implements OnInit {
     revisionNumber: 'R0',
     status: 'Design',
     sourceEpsg: 32644,
-    pinX: null as number | null,
-    pinY: null as number | null,
     contractor: '',
     consultant: '',
     notes: ''
@@ -318,7 +300,12 @@ export class UploadDrawingComponent implements OnInit {
     if (this.workspace) {
       this.workspaceService.getCategoryFields(this.workspace.id, categoryName).subscribe({
         next: (fields) => {
-          this.dynamicFields = fields;
+          // Exclude any chainage and coordinate fields since they are present directly inside the uploaded drawing
+          this.dynamicFields = fields.filter(f => 
+            !f.fieldName.toLowerCase().includes('chainage') &&
+            !f.fieldName.toLowerCase().includes('coord') &&
+            !f.fieldName.toLowerCase().includes('pin')
+          );
           this.formDynamicValues = {};
         }
       });
@@ -368,11 +355,6 @@ export class UploadDrawingComponent implements OnInit {
     formData.append('revisionNumber', this.form.revisionNumber);
     formData.append('status', this.form.status);
     formData.append('sourceEpsg', this.form.sourceEpsg.toString());
-
-    if (this.form.pinX != null && this.form.pinY != null) {
-      formData.append('pinX', this.form.pinX.toString());
-      formData.append('pinY', this.form.pinY.toString());
-    }
 
     // Dynamic fields
     for (const key of Object.keys(this.formDynamicValues)) {
