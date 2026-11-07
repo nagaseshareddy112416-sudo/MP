@@ -53,71 +53,61 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
       </mat-card>
 
       <!-- Drawings Table -->
-      <mat-card *ngIf="drawings.length > 0" class="content-card">
-        <table mat-table [dataSource]="drawings" class="drawings-table">
-          <ng-container mat-columnDef="project">
-            <th mat-header-cell *matHeaderCellDef> Project Drawing </th>
-            <td mat-cell *matCellDef="let d">
-              <div class="project-cell">
-                <strong>{{ d.projectName }}</strong>
-                <div class="file-name">{{ d.originalFileName }} ({{ d.fileType }})</div>
-              </div>
-            </td>
-          </ng-container>
-
-          <ng-container mat-columnDef="category">
-            <th mat-header-cell *matHeaderCellDef> Category / Sub-Type </th>
-            <td mat-cell *matCellDef="let d">
-              <span class="category-chip">{{ d.category }} &rsaquo; {{ d.subType }}</span>
-            </td>
-          </ng-container>
-
-          <ng-container mat-columnDef="revision">
-            <th mat-header-cell *matHeaderCellDef> Current Rev </th>
-            <td mat-cell *matCellDef="let d">
-              <span class="badge-rev">{{ d.currentRevision }}</span>
-            </td>
-          </ng-container>
-
-          <ng-container mat-columnDef="processing">
-            <th mat-header-cell *matHeaderCellDef> Processing </th>
-            <td mat-cell *matCellDef="let d">
-              <span class="status-chip" [ngClass]="getStatusClass(d.processingStatus)">
-                {{ d.processingStatus || 'Completed' }}
-              </span>
-              <div *ngIf="d.processingError" class="error-text">{{ d.processingError }}</div>
-            </td>
-          </ng-container>
-
-          <ng-container mat-columnDef="status">
-            <th mat-header-cell *matHeaderCellDef> Map & Review Status </th>
-            <td mat-cell *matCellDef="let d">
-              <span class="status-chip" [ngClass]="getStatusClass(d.reviewStatus)">
-                {{ getReviewStatusText(d.reviewStatus) }}
-              </span>
-            </td>
-          </ng-container>
-
-          <ng-container mat-columnDef="actions">
-            <th mat-header-cell *matHeaderCellDef> Actions </th>
-            <td mat-cell *matCellDef="let d">
-              <div class="row-actions">
-                <a *ngIf="isApproved(d)" mat-raised-button color="primary" routerLink="/map" matTooltip="View this drawing on the map">
-                  <mat-icon>map</mat-icon> View on Map
-                </a>
-                <button *ngIf="!isApproved(d)" mat-raised-button color="accent" (click)="quickApprove(d)" matTooltip="Approve and activate this drawing on the map">
-                  <mat-icon>check_circle</mat-icon> Approve to Map
-                </button>
-                <button mat-stroked-button (click)="viewRevisions(d)">
-                  <mat-icon>history</mat-icon> Revisions
-                </button>
-              </div>
-            </td>
-          </ng-container>
-
-          <tr mat-header-row *matHeaderRowDef="columns"></tr>
-          <tr mat-row *matRowDef="let row; columns: columns;"></tr>
-        </table>
+      <mat-card *ngIf="drawings && drawings.length > 0" class="content-card">
+        <div class="table-responsive">
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Project Drawing</th>
+                <th>Category / Sub-Type</th>
+                <th>Current Rev</th>
+                <th>Processing</th>
+                <th>Map & Review Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let d of drawings" class="table-row">
+                <td>
+                  <div class="project-cell">
+                    <strong>{{ d.projectName }}</strong>
+                    <div class="file-name">{{ d.originalFileName }} ({{ d.fileType }})</div>
+                  </div>
+                </td>
+                <td>
+                  <span class="category-chip">{{ d.category }} &rsaquo; {{ d.subType }}</span>
+                </td>
+                <td>
+                  <span class="badge-rev">{{ d.currentRevision }}</span>
+                </td>
+                <td>
+                  <span class="status-chip" [ngClass]="getStatusClass(d.processingStatus)">
+                    {{ d.processingStatus || 'Completed' }}
+                  </span>
+                  <div *ngIf="d.processingError" class="error-text">{{ d.processingError }}</div>
+                </td>
+                <td>
+                  <span class="status-chip" [ngClass]="getStatusClass(d.reviewStatus)">
+                    {{ getReviewStatusText(d.reviewStatus) }}
+                  </span>
+                </td>
+                <td>
+                  <div class="row-actions">
+                    <a *ngIf="isApproved(d)" mat-raised-button color="primary" routerLink="/map" matTooltip="View this drawing on the map">
+                      <mat-icon>map</mat-icon> View on Map
+                    </a>
+                    <button *ngIf="!isApproved(d)" mat-raised-button color="accent" (click)="quickApprove(d)" matTooltip="Approve and activate this drawing on the map">
+                      <mat-icon>check_circle</mat-icon> Approve to Map
+                    </button>
+                    <button mat-stroked-button (click)="viewRevisions(d)">
+                      <mat-icon>history</mat-icon> Revisions
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </mat-card>
 
       <!-- Revisions Detail Drawer/Modal -->
@@ -202,6 +192,32 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
       height: 64px;
       color: #9e9e9e;
       margin-bottom: 12px;
+    }
+    .table-responsive {
+      overflow-x: auto;
+      width: 100%;
+    }
+    .custom-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    .custom-table th {
+      background: #f8f9fa;
+      padding: 14px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      border-bottom: 2px solid #e9ecef;
+    }
+    .custom-table td {
+      padding: 16px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    .custom-table tr:hover td {
+      background: #fafafa;
     }
     .drawings-table {
       width: 100%;
@@ -355,7 +371,11 @@ export class RevisionHistoryComponent implements OnInit {
     if (!this.workspace) return;
     this.drawingService.getDrawings(this.workspace.id).subscribe({
       next: (data) => {
-        this.drawings = data;
+        this.drawings = data || [];
+      },
+      error: (err) => {
+        console.error('Error loading drawings', err);
+        this.message = 'Failed to load drawings. Please refresh or check connection.';
       }
     });
   }

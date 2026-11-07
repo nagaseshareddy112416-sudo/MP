@@ -27,6 +27,7 @@ import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
 
 import { AuthService } from '../../core/services/auth.service';
+import { WorkspaceService } from '../../core/services/workspace.service';
 import { DrawingService } from '../../core/services/drawing.service';
 import { environment } from '../../../environments/environment';
 import { Clash, ReferenceLayer } from '../../core/models/models';
@@ -67,7 +68,7 @@ register(proj4);
           </div>
           <div class="layer-toggles">
             <mat-checkbox [(ngModel)]="showFeatures" (change)="toggleFeatureLayer($event.checked)">
-              Approved Drawings ({{ featureCount }})
+              Approved Features ({{ featureCount }})
             </mat-checkbox>
             <mat-checkbox [(ngModel)]="showClashes" (change)="toggleClashLayer($event.checked)">
               <span class="clash-label">Clashes ({{ clashCount }})</span>
@@ -394,6 +395,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
 
   constructor(
     public authService: AuthService,
+    private workspaceService: WorkspaceService,
     private drawingService: DrawingService
   ) {}
 
@@ -504,7 +506,19 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
 
   loadWorkspaceData(): void {
     const ws = this.authService.activeWorkspace();
-    if (!ws) return;
+    if (!ws) {
+      this.workspaceService.getWorkspaces().subscribe({
+        next: (list) => {
+          if (list.length > 0) {
+            this.authService.setActiveWorkspace(list[0]);
+            this.refreshFeatures();
+            this.loadClashes();
+            this.loadReferenceLayers();
+          }
+        }
+      });
+      return;
+    }
 
     this.refreshFeatures();
     this.loadClashes();
@@ -513,7 +527,17 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
 
   refreshFeatures(): void {
     const ws = this.authService.activeWorkspace();
-    if (!ws) return;
+    if (!ws) {
+      this.workspaceService.getWorkspaces().subscribe({
+        next: (list) => {
+          if (list.length > 0) {
+            this.authService.setActiveWorkspace(list[0]);
+            this.refreshFeatures();
+          }
+        }
+      });
+      return;
+    }
 
     this.drawingService.getFeatures(ws.id).subscribe({
       next: (geoJson) => {
@@ -528,9 +552,12 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
           this.featureCount = olFeatures.length;
 
           if (olFeatures.length > 0) {
-            this.zoomToExtent();
+            setTimeout(() => this.zoomToExtent(), 200);
           }
         }
+      },
+      error: (err) => {
+        console.error('Failed to load map features', err);
       }
     });
   }
