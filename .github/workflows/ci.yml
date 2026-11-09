@@ -28,3 +28,4 @@ jobs:
 
     - name: Build production application
       run: npm run build -- --configuration production
+

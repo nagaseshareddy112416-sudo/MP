@@ -10,3 +10,4 @@ The following known limitations and planned enhancements are tracked here:
 
 3. **Drawing Deletion UI**:
    - Drawings can currently be viewed and reviewed; drawing archive/deletion options are exposed via API and will be expanded in the management UI in Phase 4.
+

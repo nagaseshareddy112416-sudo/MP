@@ -8,6 +8,7 @@ import { RevisionHistoryComponent } from './features/revisions/revision-history.
 import { ClashesListComponent } from './features/clashes/clashes-list.component';
 import { DashboardComponent } from './features/dashboard/dashboard.component';
 import { ComplianceComponent } from './features/compliance/compliance.component';
+import { DesignSystemComponent } from './features/design-system/design-system.component';
 import { authGuard } from './core/services/auth.guard';
 
 export const routes: Routes = [
@@ -19,6 +20,7 @@ export const routes: Routes = [
   { path: 'compliance', component: ComplianceComponent, canActivate: [authGuard] },
   { path: 'clashes', component: ClashesListComponent, canActivate: [authGuard] },
   { path: 'dashboard', component: DashboardComponent, canActivate: [authGuard] },
+  { path: 'design-system', component: DesignSystemComponent },
   { path: 'admin/settings', component: AdminSettingsComponent, canActivate: [authGuard] },
   { path: '', redirectTo: 'map', pathMatch: 'full' },
   { path: '**', redirectTo: 'map' }

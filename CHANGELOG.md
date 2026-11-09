@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-09 - Phase 2: Premium Design System
+### Added
+- Complete Design Tokens (`src/styles/design-tokens.scss`) defining 4/8px spacing grid, typography scale (Inter, JetBrains Mono), border radii, elevation shadows, and engineering status colors (Compliant, Tolerance, Deviation, Missing, Extra, Clash).
+- Theme Service (`ThemeService`) with reactive signal state for Light and Dark modes, system preference detection (`prefers-color-scheme`), and persistent storage.
+- Global Command Palette (`CommandPaletteComponent`) triggered via `Ctrl+K` or header search, supporting keyboard navigation across all views, theme switching, and actions.
+- Floating Toast Notification Stack (`ToastService` & `ToastContainerComponent`) with animated status alerts.
+- Living Design System Showcase page (`/design-system`) demonstrating tokens, status badges, metric cards, buttons, category styling, and skeleton loaders.
+- Modern application header with enterprise branding, workspace quick switcher pill, command trigger, theme toggle, and user profile menu.
+
+### Verified
+- `npx ng test --watch=false` passed 3 of 3 unit tests.
+- `npx ng build --configuration production` succeeded with 0 errors and 0 warnings.
+
 ## [0.2.0] - 2026-11-09 - Phase 1: Stabilization
 ### Added
 - Multi-stage production `Dockerfile` with Node.js 20 build and Nginx Alpine runtime.
@@ -23,3 +36,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Verified
 - `npx ng test --watch=false` passed 1 of 1 test suites (100% pass).
 - `npx ng build --configuration production` succeeded with bundle budget checks.
+

@@ -1,39 +1,154 @@
+@use './styles/design-tokens.scss' as tokens;
 @import '@angular/material/prebuilt-themes/indigo-pink.css';
 @import 'ol/ol.css';
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
 
 html, body {
   height: 100%;
   margin: 0;
-  font-family: Roboto, "Helvetica Neue", sans-serif;
-  background-color: #f5f7fa;
-  color: #333333;
+  padding: 0;
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color var(--transition-base), color var(--transition-base);
 }
 
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Global Utility & Component Classes */
+.gfc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+
+  &.compliant {
+    background-color: var(--color-status-compliant-bg);
+    color: var(--color-status-compliant);
+    border: 1px solid var(--color-status-compliant);
+  }
+  &.tolerance {
+    background-color: var(--color-status-tolerance-bg);
+    color: var(--color-status-tolerance);
+    border: 1px solid var(--color-status-tolerance);
+  }
+  &.deviation {
+    background-color: var(--color-status-deviation-bg);
+    color: var(--color-status-deviation);
+    border: 1px solid var(--color-status-deviation);
+  }
+  &.missing {
+    background-color: var(--color-status-missing-bg);
+    color: var(--color-status-missing);
+    border: 1px solid var(--color-status-missing);
+  }
+  &.extra {
+    background-color: var(--color-status-extra-bg);
+    color: var(--color-status-extra);
+    border: 1px solid var(--color-status-extra);
+  }
+  &.clash {
+    background-color: var(--color-status-clash-bg);
+    color: var(--color-status-clash);
+    border: 1px solid var(--color-status-clash);
+  }
+  &.neutral {
+    background-color: var(--bg-surface-subtle);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+  }
+}
+
+/* Modern Card Primitive */
+.gfc-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+}
+
+/* Map Containers */
 .map-container {
   width: 100%;
-  height: calc(100vh - 64px);
+  height: calc(100vh - var(--header-height));
   position: relative;
+  background-color: #0b1120;
 }
 
-/* Custom OpenLayers tooltip / control styling */
+/* Modernized OpenLayers control styling */
 .ol-mouse-position {
   top: auto;
-  bottom: 8px;
-  right: 8px;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-family: monospace;
-  font-size: 11px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  bottom: var(--space-3);
+  right: var(--space-3);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(8px);
 }
 
 .ol-scale-line {
-  background: rgba(255, 255, 255, 0.85);
-  padding: 2px 4px;
-  border-radius: 4px;
+  bottom: var(--space-3);
+  left: var(--space-3);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  padding: 3px 6px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
 }
+
 .ol-scale-line-inner {
-  color: #222;
-  border-color: #222;
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* Angular Material overrides for dark/light consistency */
+body.dark-theme {
+  .mat-mdc-menu-panel {
+    background-color: var(--bg-surface-elevated) !important;
+  }
+  .mat-mdc-menu-item {
+    color: var(--text-primary) !important;
+    &:hover {
+      background-color: var(--bg-surface-hover) !important;
+    }
+  }
 }

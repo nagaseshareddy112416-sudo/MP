@@ -11,3 +11,4 @@ This document tracks assumptions made in the architecture and implementation of 
 ## 2. Storage & Sessions
 - User session state (JWT token and user info) and selected workspace context are cached in `localStorage` with fallback handling for SSR / unit test environments.
 - All HTTP requests automatically attach the Bearer token via `auth.interceptor.ts`. Expired tokens trigger navigation to `/login?expired=true`.
+
