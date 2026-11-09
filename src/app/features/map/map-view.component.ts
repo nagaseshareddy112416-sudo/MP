@@ -1,7 +1,7 @@
 import { Component, OnInit, AfterViewInit, OnDestroy, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonToggleModule } from '@angular/material/button-toggle';
@@ -28,14 +28,17 @@ import { Style, Stroke, Fill, Circle as CircleStyle, Text } from 'ol/style';
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
 import { createEmpty, extend } from 'ol/extent';
+import Draw from 'ol/interaction/Draw';
+import { getLength, getArea } from 'ol/sphere';
+import Geometry from 'ol/geom/Geometry';
 
 import { AuthService } from '../../core/services/auth.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { DrawingService } from '../../core/services/drawing.service';
+import { ToastService } from '../../core/services/toast.service';
 import { environment } from '../../../environments/environment';
 import { Clash, ReferenceLayer } from '../../core/models/models';
 
-// Register UTM Zone 44N projection for OpenLayers
 proj4.defs('EPSG:32644', '+proj=utm +zone=44 +datum=WGS84 +units=m +no_defs');
 register(proj4);
 
@@ -43,32 +46,61 @@ register(proj4);
   selector: 'app-map-view',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, MatButtonModule, MatIconModule, MatButtonToggleModule,
+    CommonModule, FormsModule, RouterModule, MatButtonModule, MatIconModule, MatButtonToggleModule,
     MatCardModule, MatTooltipModule, MatCheckboxModule, MatFormFieldModule, MatInputModule, MatSelectModule
   ],
   template: `
     <div class="map-wrapper">
-      <!-- Floating Top-Left Controls: Base Map Switcher -->
+      <!-- Floating Top-Left Controls: Base Map & Measurement Tools -->
       <div class="map-overlay-panel top-left">
-        <mat-card class="control-card">
-          <div class="base-switcher-label">Base Map</div>
+        <div class="gfc-card control-card">
+          <div class="panel-section-title">Base Map</div>
           <mat-button-toggle-group [(ngModel)]="currentBaseMap" (change)="onBaseMapChange($event.value)" size="small">
             <mat-button-toggle value="osm">Street</mat-button-toggle>
             <mat-button-toggle value="satellite">Satellite</mat-button-toggle>
             <mat-button-toggle value="none">None</mat-button-toggle>
           </mat-button-toggle-group>
-        </mat-card>
+
+          <div class="panel-divider"></div>
+
+          <div class="panel-section-title">GIS Measurement Tools</div>
+          <div class="measure-tools-row">
+            <button
+              class="measure-btn"
+              [class.active]="activeMeasureTool === 'distance'"
+              (click)="toggleMeasure('distance')"
+              matTooltip="Measure linear distance"
+            >
+              <mat-icon>straighten</mat-icon> Distance
+            </button>
+            <button
+              class="measure-btn"
+              [class.active]="activeMeasureTool === 'area'"
+              (click)="toggleMeasure('area')"
+              matTooltip="Measure polygon area"
+            >
+              <mat-icon>square_foot</mat-icon> Area
+            </button>
+            <button class="measure-btn" (click)="clearMeasurements()" matTooltip="Clear measured geometries">
+              <mat-icon>clear</mat-icon> Clear
+            </button>
+          </div>
+          <div *ngIf="lastMeasureResult" class="measure-result-pill">
+            <mat-icon>info</mat-icon> {{ lastMeasureResult }}
+          </div>
+        </div>
       </div>
 
-      <!-- Floating Top-Right Controls: Layer Toggles & Action Buttons -->
+      <!-- Floating Top-Right Controls: Layers, Focus, & Compare -->
       <div class="map-overlay-panel top-right">
-        <mat-card class="control-card">
+        <div class="gfc-card control-card layer-card">
           <div class="panel-header">
             <span>Layers & Overlays</span>
             <button mat-icon-button (click)="refreshFeatures()" matTooltip="Reload features">
               <mat-icon>refresh</mat-icon>
             </button>
           </div>
+
           <div class="layer-toggles">
             <mat-checkbox [(ngModel)]="showFeatures" (change)="toggleFeatureLayer($event.checked)">
               Approved Features ({{ featureCount }})
@@ -91,6 +123,7 @@ register(proj4);
             </mat-form-field>
           </div>
 
+          <!-- Compare Mode Toggle -->
           <div class="compare-mode-section">
             <div class="sub-header">Stage / Compare Mode</div>
             <mat-button-toggle-group [(ngModel)]="compareMode" (change)="onCompareModeChange($event.value)" size="small" class="compare-toggle-group">
@@ -100,6 +133,7 @@ register(proj4);
             </mat-button-toggle-group>
           </div>
 
+          <!-- Reference Layers Section -->
           <div *ngIf="referenceLayers.length > 0" class="ref-layers-section">
             <div class="sub-header">Reference Layers</div>
             <div *ngFor="let ref of referenceLayers" class="ref-item-row">
@@ -120,37 +154,148 @@ register(proj4);
               <mat-icon>zoom_out_map</mat-icon> Fit Extent
             </button>
           </div>
-        </mat-card>
+        </div>
+      </div>
+
+      <!-- Floating Bottom-Left: Interactive GIS Map Legend -->
+      <div class="map-overlay-panel bottom-left">
+        <div class="gfc-card legend-card" [class.collapsed]="legendCollapsed">
+          <div class="legend-header" (click)="legendCollapsed = !legendCollapsed">
+            <div class="legend-title">
+              <mat-icon>legend_toggle</mat-icon> Map Symbology Legend
+            </div>
+            <mat-icon class="collapse-icon">{{ legendCollapsed ? 'expand_less' : 'expand_more' }}</mat-icon>
+          </div>
+
+          <div class="legend-body" *ngIf="!legendCollapsed">
+            <div class="legend-item">
+              <span class="legend-swatch road-cl"></span>
+              <span>Road Centerline (ROAD_CL)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch road-edge"></span>
+              <span>Road Edge (ROAD_EDGE)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch water-main"></span>
+              <span>Water Supply (WATER_MAIN)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch sewer-line"></span>
+              <span>Sewerage Pipe (SEWER_LINE)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch storm-drain"></span>
+              <span>Stormwater Drain (STORM_DRAIN)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch power-cable"></span>
+              <span>Power / Duct (POWER_CABLE)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch bldg-poly"></span>
+              <span>Building Footprint (BLDG_FOOTPRINT)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch chainage-pt"></span>
+              <span>Chainage Markers (CHAINAGE)</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-swatch clash-pulse"></span>
+              <span>3D Clearance Clash Marker</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Focus Drawing Floating Banner (Top Center) -->
-      <div *ngIf="targetDrawingId" class="drawing-focus-banner">
+      <div *ngIf="targetDrawingId" class="drawing-focus-banner gfc-card">
         <mat-icon class="focus-icon">filter_center_focus</mat-icon>
         <span class="focus-title">Focusing on: <strong>{{ selectedDrawingName }}</strong></span>
-        <button mat-button color="primary" (click)="selectDrawingFilter(null)" class="clear-btn">
+        <button class="gfc-btn subtle" (click)="selectDrawingFilter(null)">
           <mat-icon>zoom_out_map</mat-icon> Show All
         </button>
-        <button mat-button color="warn" (click)="deleteCurrentDrawing()" class="clear-btn" matTooltip="Delete this drawing from database">
-          <mat-icon>delete</mat-icon> Delete Drawing
+        <button class="gfc-btn danger" (click)="deleteCurrentDrawing()" matTooltip="Delete this drawing from database">
+          <mat-icon>delete</mat-icon> Delete
         </button>
       </div>
 
-      <!-- Map Div -->
+      <!-- Map Viewport Container -->
       <div #mapContainer class="map-container"></div>
 
-      <!-- Mouse Coordinate Inspector (Bottom Center/Right) -->
+      <!-- Live Coordinates HUD (Bottom Right) -->
       <div class="coordinates-hud" *ngIf="mouseCoords">
         <span>Lon: {{ mouseCoords[0] | number:'1.5-5' }}°</span>
         <span>Lat: {{ mouseCoords[1] | number:'1.5-5' }}°</span>
         <span *ngIf="mouseUtmCoords">UTM 44N: E {{ mouseUtmCoords[0] | number:'1.0-0' }}m, N {{ mouseUtmCoords[1] | number:'1.0-0' }}m</span>
       </div>
 
-      <!-- Reference Layer Upload Modal -->
+      <!-- CAD Feature Inspector Slide-over Drawer (Right Side) -->
+      <div *ngIf="selectedFeatureProps" class="feature-inspector-drawer gfc-card">
+        <div class="inspector-header">
+          <div class="inspector-title-group">
+            <mat-icon class="ins-icon">layers</mat-icon>
+            <div>
+              <h3>{{ selectedFeatureProps.category }} &rsaquo; {{ selectedFeatureProps.subType }}</h3>
+              <span class="ins-layer">Layer: <code>{{ selectedFeatureProps.layer }}</code></span>
+            </div>
+          </div>
+          <button class="icon-close-btn" (click)="selectedFeatureProps = null">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+
+        <div class="inspector-body">
+          <div class="inspector-badge-row">
+            <span *ngIf="selectedFeatureProps.isAsBuilt" class="gfc-badge extra">As-Built Survey</span>
+            <span *ngIf="!selectedFeatureProps.isAsBuilt" class="gfc-badge tolerance">GFC Baseline</span>
+            <span class="gfc-badge compliant" *ngIf="selectedFeatureProps.geometryType">{{ selectedFeatureProps.geometryType }}</span>
+          </div>
+
+          <div class="inspector-grid">
+            <div class="ins-row">
+              <span class="label">Project Drawing</span>
+              <span class="val">{{ selectedFeatureProps.projectName }}</span>
+            </div>
+            <div class="ins-row" *ngIf="selectedFeatureProps.revision">
+              <span class="label">Revision</span>
+              <span class="val">{{ selectedFeatureProps.revision }}</span>
+            </div>
+            <div class="ins-row" *ngIf="selectedFeatureProps.chainage != null">
+              <span class="label">Chainage</span>
+              <span class="val">{{ selectedFeatureProps.chainage }} m</span>
+            </div>
+            <div class="ins-row" *ngIf="selectedFeatureProps.depth != null">
+              <span class="label">Buried Depth</span>
+              <span class="val">{{ selectedFeatureProps.depth }} m (Z)</span>
+            </div>
+            <div class="ins-row" *ngIf="selectedFeatureProps.diameter != null">
+              <span class="label">Diameter</span>
+              <span class="val">DN{{ selectedFeatureProps.diameter }}</span>
+            </div>
+            <div class="ins-row" *ngIf="selectedFeatureProps.material">
+              <span class="label">Material</span>
+              <span class="val">{{ selectedFeatureProps.material }}</span>
+            </div>
+          </div>
+
+          <div class="inspector-actions" *ngIf="selectedFeatureProps.drawingId">
+            <button class="gfc-btn secondary full" (click)="focusOnDrawing(selectedFeatureProps.drawingId)">
+              <mat-icon>filter_center_focus</mat-icon> Focus Drawing
+            </button>
+            <button class="gfc-btn danger full" (click)="deleteDrawingFromMap(selectedFeatureProps.drawingId, selectedFeatureProps.projectName)">
+              <mat-icon>delete</mat-icon> Delete Drawing
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload Reference Layer Modal -->
       <div *ngIf="showUploadRefModal" class="modal-backdrop">
         <mat-card class="modal-card">
           <mat-card-header>
             <mat-card-title>Upload Reference Layer</mat-card-title>
-            <mat-card-subtitle>Official Master Plan / Boundary Overlay (GeoJSON, Shapefile .zip, KML)</mat-card-subtitle>
+            <mat-card-subtitle>Official Master Plan / Boundary Overlay (.geojson, .zip, .kml)</mat-card-subtitle>
           </mat-card-header>
           <mat-card-content>
             <div *ngIf="refUploadError" class="error-text">{{ refUploadError }}</div>
@@ -160,20 +305,17 @@ register(proj4);
                   <mat-label>Layer Name</mat-label>
                   <input matInput [(ngModel)]="refName" name="refName" required placeholder="e.g. Master Plan 2030">
                 </mat-form-field>
-
                 <mat-form-field appearance="outline" class="full-width">
                   <mat-label>Overlay Color</mat-label>
                   <input matInput [(ngModel)]="refColor" name="refColor" placeholder="#3f51b5">
                 </mat-form-field>
-
                 <div class="file-picker">
                   <input type="file" #refFileInput (change)="onRefFileSelected($event)" accept=".geojson,.json,.zip,.kml" style="display:none">
                   <button mat-stroked-button type="button" (click)="refFileInput.click()">
-                    <mat-icon>attach_file</mat-icon> {{ selectedRefFile ? selectedRefFile.name : 'Select File (.geojson, .zip, .kml)' }}
+                    <mat-icon>attach_file</mat-icon> {{ selectedRefFile ? selectedRefFile.name : 'Select Overlay File' }}
                   </button>
                 </div>
               </div>
-
               <div class="modal-actions">
                 <button mat-button type="button" (click)="showUploadRefModal = false">Cancel</button>
                 <button mat-raised-button color="primary" type="submit" [disabled]="!selectedRefFile || uploadingRef">
@@ -184,301 +326,453 @@ register(proj4);
           </mat-card-content>
         </mat-card>
       </div>
-
-      <!-- Selected Feature Detail Popup -->
-      <div *ngIf="selectedFeatureProps" class="feature-popup mat-elevation-z4">
-        <div class="popup-header">
-          <strong>{{ selectedFeatureProps.category }} - {{ selectedFeatureProps.subType }}</strong>
-          <button mat-icon-button (click)="selectedFeatureProps = null">
-            <mat-icon>close</mat-icon>
-          </button>
-        </div>
-        <div class="popup-body">
-          <p><strong>Project:</strong> {{ selectedFeatureProps.projectName }}</p>
-          <p><strong>Layer:</strong> <code>{{ selectedFeatureProps.layer }}</code></p>
-          <p *ngIf="selectedFeatureProps.chainage != null"><strong>Chainage:</strong> {{ selectedFeatureProps.chainage }} m</p>
-          <p *ngIf="selectedFeatureProps.depth != null"><strong>Depth:</strong> {{ selectedFeatureProps.depth }} m</p>
-          <p *ngIf="selectedFeatureProps.diameter != null"><strong>Diameter:</strong> DN{{ selectedFeatureProps.diameter }}</p>
-          <p *ngIf="selectedFeatureProps.material"><strong>Material:</strong> {{ selectedFeatureProps.material }}</p>
-          <p><strong>Revision:</strong> {{ selectedFeatureProps.revision }}</p>
-          <p *ngIf="selectedFeatureProps.stageName"><strong>Stage:</strong> {{ selectedFeatureProps.stageName }}</p>
-          <div *ngIf="selectedFeatureProps.isAsBuilt" class="asbuilt-tag-row">
-            <span class="tag-asbuilt">As-Built Record</span>
-            <span *ngIf="selectedFeatureProps.constructionStatus" class="tag-status">
-              {{ selectedFeatureProps.constructionStatus }}
-            </span>
-          </div>
-          <div class="popup-actions" *ngIf="selectedFeatureProps.drawingId" style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee; display: flex; justify-content: flex-end;">
-            <button mat-button color="warn" (click)="deleteDrawingFromMap(selectedFeatureProps.drawingId, selectedFeatureProps.projectName)">
-              <mat-icon>delete</mat-icon> Delete Drawing
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   `,
   styles: [`
     .map-wrapper {
       position: relative;
       width: 100%;
-      height: calc(100vh - 64px);
+      height: calc(100vh - var(--header-height));
+      overflow: hidden;
     }
+
     .map-container {
       width: 100%;
       height: 100%;
     }
+
     .map-overlay-panel {
       position: absolute;
       z-index: 10;
     }
+
     .top-left {
-      top: 16px;
-      left: 16px;
+      top: var(--space-4);
+      left: var(--space-4);
     }
+
     .top-right {
-      top: 16px;
-      right: 16px;
-      width: 260px;
+      top: var(--space-4);
+      right: var(--space-4);
+      width: 280px;
     }
+
+    .bottom-left {
+      bottom: var(--space-4);
+      left: var(--space-4);
+    }
+
     .control-card {
-      padding: 12px 16px;
-      background: rgba(255, 255, 255, 0.95);
-      border-radius: 8px;
+      padding: var(--space-3) var(--space-4);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(8px);
     }
-    .base-switcher-label {
+
+    .panel-section-title {
       font-size: 11px;
       text-transform: uppercase;
-      font-weight: 600;
-      color: #666;
-      margin-bottom: 6px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      margin-bottom: var(--space-2);
     }
+
+    .panel-divider {
+      height: 1px;
+      background: var(--border-subtle);
+      margin: var(--space-3) 0;
+    }
+
+    .measure-tools-row {
+      display: flex;
+      gap: var(--space-1);
+    }
+
+    .measure-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-primary);
+      transition: all var(--transition-fast);
+
+      mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+
+      &:hover, &.active {
+        background: var(--color-brand);
+        color: #ffffff;
+        border-color: var(--color-brand);
+      }
+    }
+
+    .measure-result-pill {
+      margin-top: var(--space-2);
+      background: var(--color-brand-subtle);
+      border: 1px solid var(--color-brand-border);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--color-brand);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+
+      mat-icon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+    }
+
     .panel-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-weight: 600;
-      font-size: 14px;
-      margin-bottom: 8px;
+      font-weight: 700;
+      font-size: var(--text-sm);
+      color: var(--text-primary);
+      margin-bottom: var(--space-2);
     }
+
     .layer-toggles {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: var(--space-1);
     }
+
     .clash-label {
-      color: #d32f2f;
-      font-weight: 500;
+      color: var(--color-status-missing);
+      font-weight: 600;
     }
-    .ref-layers-section {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid #eee;
-    }
+
     .sub-header {
-      font-size: 12px;
-      color: #777;
-      margin-bottom: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin: var(--space-2) 0 var(--space-1) 0;
     }
-    .ref-item-row {
+
+    .full-width-field {
+      width: 100%;
+    }
+
+    .compare-toggle-group {
+      width: 100%;
+      display: flex;
+    }
+
+    .action-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-top: var(--space-3);
+    }
+
+    .full-width-btn {
+      width: 100%;
+    }
+
+    /* Legend Card */
+    .legend-card {
+      width: 250px;
+      padding: var(--space-3);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+    }
+
+    .legend-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin: 2px 0;
+      cursor: pointer;
     }
-    .compare-mode-section {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid #eee;
-    }
-    .compare-toggle-group {
-      width: 100%;
-      margin-top: 4px;
-    }
-    .asbuilt-tag-row {
+
+    .legend-title {
       display: flex;
-      gap: 6px;
-      margin-top: 8px;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      font-weight: 700;
+      color: var(--text-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+
+      mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+        color: var(--color-brand);
+      }
     }
-    .tag-asbuilt {
-      background: #7b1fa2;
-      color: white;
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: bold;
-    }
-    .tag-status {
-      background: #e0e0e0;
-      color: #333;
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 4px;
-    }
-    .mini-btn {
-      width: 28px;
-      height: 28px;
-      line-height: 28px;
-    }
-    .full-width-btn {
-      width: 100%;
-      margin-top: 6px;
-    }
-    .action-buttons {
-      margin-top: 12px;
+
+    .legend-body {
+      margin-top: var(--space-2);
+      padding-top: var(--space-2);
+      border-top: 1px solid var(--border-subtle);
       display: flex;
       flex-direction: column;
       gap: 6px;
+      max-height: 220px;
+      overflow-y: auto;
     }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .legend-swatch {
+      width: 16px;
+      height: 4px;
+      border-radius: 2px;
+      flex-shrink: 0;
+
+      &.road-cl { background-color: #000000; height: 3px; }
+      &.road-edge { background-color: #666666; height: 2px; }
+      &.water-main { background-color: #1f77ff; height: 3px; }
+      &.sewer-line { background-color: #8b4513; height: 3px; }
+      &.storm-drain { background-color: #2ca02c; height: 3px; }
+      &.power-cable { background-color: #e63946; height: 2px; }
+      &.bldg-poly { background-color: rgba(33, 150, 243, 0.4); border: 1px solid #1976d2; height: 12px; border-radius: 3px; }
+      &.chainage-pt { background-color: #ff9800; width: 8px; height: 8px; border-radius: 50%; }
+      &.clash-pulse { background-color: #ff1744; width: 8px; height: 8px; border-radius: 50%; border: 1px solid #ffffff; }
+    }
+
+    /* Drawing Focus Banner */
+    .drawing-focus-banner {
+      position: absolute;
+      top: var(--space-4);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      background: var(--bg-surface-elevated);
+      padding: var(--space-2) var(--space-4);
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      border-radius: var(--radius-pill);
+      box-shadow: var(--shadow-floating);
+      border: 1px solid var(--color-brand);
+    }
+
+    .focus-icon {
+      color: var(--color-brand);
+    }
+
+    .focus-title {
+      font-size: var(--text-xs);
+      color: var(--text-primary);
+    }
+
+    /* Coordinates HUD */
+    .coordinates-hud {
+      position: absolute;
+      bottom: var(--space-3);
+      right: var(--space-3);
+      z-index: 10;
+      background: var(--bg-surface-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: var(--space-1) var(--space-3);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      display: flex;
+      gap: var(--space-3);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* CAD Feature Inspector Drawer */
+    .feature-inspector-drawer {
+      position: absolute;
+      top: var(--space-4);
+      right: 300px;
+      width: 320px;
+      max-height: calc(100vh - var(--header-height) - 40px);
+      z-index: 25;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-floating);
+      overflow-y: auto;
+      padding: var(--space-4);
+      animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideInRight {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .inspector-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: var(--space-3);
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .inspector-title-group {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+
+      h3 {
+        margin: 0;
+        font-size: var(--text-sm);
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+
+      .ins-layer {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .ins-icon {
+        color: var(--color-brand);
+      }
+    }
+
+    .icon-close-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-muted);
+      padding: 0;
+      &:hover { color: var(--text-primary); }
+    }
+
+    .inspector-badge-row {
+      display: flex;
+      gap: var(--space-1);
+      margin-bottom: var(--space-3);
+    }
+
+    .inspector-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      margin-bottom: var(--space-4);
+    }
+
+    .ins-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px dashed var(--border-subtle);
+
+      .label {
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+      .val {
+        color: var(--text-primary);
+        font-weight: 600;
+        font-family: var(--font-mono);
+      }
+    }
+
+    .inspector-actions {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-top: var(--space-3);
+    }
+
+    .full {
+      width: 100%;
+      justify-content: center;
+    }
+
+    /* Modal Backdrop */
     .modal-backdrop {
       position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.5);
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 100;
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 1000;
     }
+
     .modal-card {
-      width: 100%;
-      max-width: 450px;
-      padding: 20px;
-    }
-    .file-picker {
-      margin: 12px 0;
-    }
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 16px;
-    }
-    .error-text {
-      color: #c62828;
-      font-size: 13px;
-      margin-bottom: 12px;
-    }
-    .coordinates-hud {
-      position: absolute;
-      bottom: 24px;
-      left: 16px;
-      background: rgba(0, 0, 0, 0.75);
-      color: #ffffff;
-      padding: 4px 12px;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 12px;
-      display: flex;
-      gap: 16px;
-      z-index: 10;
-      pointer-events: none;
-    }
-    .drawing-focus-banner {
-      position: absolute;
-      top: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #ffffff;
-      color: #1976d2;
-      padding: 6px 16px;
-      border-radius: 30px;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      z-index: 15;
-      font-size: 14px;
-      border: 1px solid #bbdefb;
-    }
-    .focus-icon {
-      font-size: 20px;
-      height: 20px;
-      width: 20px;
-      color: #1976d2;
-    }
-    .focus-title {
-      font-weight: 500;
-      color: #333;
-    }
-    .focus-title strong {
-      color: #1565c0;
-    }
-    .clear-btn {
-      margin-left: 8px;
-      font-size: 12px;
-      line-height: 28px;
-      height: 28px;
-    }
-    .drawing-select-section {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid #eee;
-    }
-    .full-width-field {
-      width: 100%;
-      margin-top: 4px;
-    }
-    .feature-popup {
-      position: absolute;
-      bottom: 60px;
-      left: 16px;
-      width: 300px;
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
-      z-index: 20;
-    }
-    .popup-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 6px;
-      margin-bottom: 8px;
-    }
-    .popup-body p {
-      margin: 4px 0;
-      font-size: 13px;
+      width: 440px;
+      padding: var(--space-5);
     }
   `]
 })
 export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
-  @ViewChild('mapContainer') mapElement!: ElementRef;
+  @ViewChild('mapContainer', { static: true }) mapElement!: ElementRef;
 
-  map!: OlMap;
-  osmLayer!: TileLayer<OSM>;
-  satelliteLayer!: TileLayer<XYZ>;
-  featuresLayer!: VectorLayer<VectorSource>;
-  featuresSource = new VectorSource();
-  clashesLayer!: VectorLayer<VectorSource>;
-  clashesSource = new VectorSource();
-  refLayers: Map<string, VectorLayer<VectorSource>> = new Map();
+  private map!: OlMap;
+  private osmLayer!: TileLayer<OSM>;
+  private satelliteLayer!: TileLayer<XYZ>;
+  private featuresLayer!: VectorLayer<VectorSource>;
+  private clashesLayer!: VectorLayer<VectorSource>;
+  private measureLayer!: VectorLayer<VectorSource>;
+  private measureDraw!: Draw;
+
+  private featuresSource: VectorSource = new VectorSource();
+  private clashesSource: VectorSource = new VectorSource();
+  private measureSource: VectorSource = new VectorSource();
 
   currentBaseMap = 'osm';
-  compareMode: 'all' | 'gfc' | 'asbuilt' = 'all';
   showFeatures = true;
   showClashes = true;
+  compareMode: 'all' | 'gfc' | 'asbuilt' = 'all';
+
   featureCount = 0;
   clashCount = 0;
   mouseCoords: [number, number] | null = null;
   mouseUtmCoords: [number, number] | null = null;
-  selectedFeatureProps: any = null;
-  referenceLayers: ReferenceLayer[] = [];
 
-  showUploadRefModal = false;
-  refName = '';
-  refColor = '#3f51b5';
-  selectedRefFile: File | null = null;
-  uploadingRef = false;
-  refUploadError = '';
-
+  availableDrawings: Array<{ id: string; name: string; featureCount: number }> = [];
   targetDrawingId: string | null = null;
   selectedDrawingName = '';
-  availableDrawings: { id: string; name: string; featureCount: number }[] = [];
+  selectedFeatureProps: any = null;
+
+  activeMeasureTool: 'distance' | 'area' | null = null;
+  lastMeasureResult: string | null = null;
+  legendCollapsed = false;
+
+  referenceLayers: ReferenceLayer[] = [];
+  showUploadRefModal = false;
+  uploadingRef = false;
+  selectedRefFile: File | null = null;
+  refName = '';
+  refColor = '#3f51b5';
+  refUploadError = '';
+  private refLayers = new Map<string, VectorLayer<VectorSource>>();
 
   constructor(
     public authService: AuthService,
     private workspaceService: WorkspaceService,
     private drawingService: DrawingService,
+    private toastService: ToastService,
     private route: ActivatedRoute,
     private router: Router
   ) {}
@@ -486,7 +780,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnInit(): void {
     this.route.queryParams.subscribe(params => {
       this.targetDrawingId = params['drawingId'] || null;
-      if (this.featuresSource && this.featuresSource.getFeatures().length > 0) {
+      if (this.map && this.featuresSource.getFeatures().length > 0) {
         this.applyDrawingFilterOrZoom();
       }
     });
@@ -509,11 +803,8 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     const centerLat = ws?.centerLat ?? environment.defaultWorkspace.centerLat;
     const zoom = ws?.defaultZoom ?? environment.defaultWorkspace.zoom;
 
-    // 1. Base Map Layers
     this.osmLayer = new TileLayer({
-      source: new OSM({
-        attributions: environment.baseMaps.osm.attribution
-      }),
+      source: new OSM({ attributions: environment.baseMaps.osm.attribution }),
       visible: true
     });
 
@@ -526,16 +817,14 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
       visible: false
     });
 
-    // 2. Extracted Features Vector Layer
     this.featuresLayer = new VectorLayer({
       source: this.featuresSource,
       style: (feature) => this.getFeatureStyle(feature)
     });
 
-    // 3. Clashes Vector Layer
     this.clashesLayer = new VectorLayer({
       source: this.clashesSource,
-      style: (feature) => new Style({
+      style: () => new Style({
         image: new CircleStyle({
           radius: 9,
           fill: new Fill({ color: '#ff1744' }),
@@ -551,42 +840,91 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
       })
     });
 
-    // 4. Initialize Map
+    this.measureLayer = new VectorLayer({
+      source: this.measureSource,
+      style: new Style({
+        fill: new Fill({ color: 'rgba(37, 99, 235, 0.2)' }),
+        stroke: new Stroke({ color: '#2563eb', width: 3, lineDash: [6, 6] }),
+        image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#2563eb' }) })
+      })
+    });
+
     this.map = new OlMap({
       target: this.mapElement.nativeElement,
-      layers: [this.osmLayer, this.satelliteLayer, this.featuresLayer, this.clashesLayer],
+      layers: [this.osmLayer, this.satelliteLayer, this.featuresLayer, this.clashesLayer, this.measureLayer],
       view: new View({
         center: fromLonLat([centerLon, centerLat]),
         zoom: zoom
       }),
-      controls: defaultControls({
-        attributionOptions: { collapsible: true }
-      }).extend([
+      controls: defaultControls({ attributionOptions: { collapsible: true } }).extend([
         new ScaleLine({ units: 'metric' })
       ])
     });
 
-    // Track mouse coordinate movement
     this.map.on('pointermove', (evt) => {
       const coords = toLonLat(evt.coordinate);
       this.mouseCoords = [coords[0], coords[1]];
       try {
         const utm = proj4('EPSG:4326', 'EPSG:32644', [coords[0], coords[1]]);
         this.mouseUtmCoords = [utm[0], utm[1]];
-      } catch (e) {
+      } catch {
         this.mouseUtmCoords = null;
       }
     });
 
-    // Handle clicks for feature popup
     this.map.on('click', (evt) => {
+      if (this.activeMeasureTool) return;
       const feature = this.map.forEachFeatureAtPixel(evt.pixel, (f) => f);
       if (feature) {
-        this.selectedFeatureProps = feature.getProperties();
+        this.selectedFeatureProps = (feature as Feature).getProperties();
       } else {
         this.selectedFeatureProps = null;
       }
     });
+  }
+
+  toggleMeasure(tool: 'distance' | 'area'): void {
+    if (this.measureDraw) {
+      this.map.removeInteraction(this.measureDraw);
+    }
+
+    if (this.activeMeasureTool === tool) {
+      this.activeMeasureTool = null;
+      return;
+    }
+
+    this.activeMeasureTool = tool;
+    const type = tool === 'distance' ? 'LineString' : 'Polygon';
+
+    this.measureDraw = new Draw({
+      source: this.measureSource,
+      type: type as any
+    });
+
+    this.measureDraw.on('drawend', (evt) => {
+      const geom = evt.feature.getGeometry();
+      if (!geom) return;
+
+      if (tool === 'distance') {
+        const length = getLength(geom, { projection: 'EPSG:3857' });
+        this.lastMeasureResult = length > 1000 ? `${(length / 1000).toFixed(2)} km` : `${length.toFixed(1)} m`;
+      } else {
+        const area = getArea(geom, { projection: 'EPSG:3857' });
+        this.lastMeasureResult = area > 10000 ? `${(area / 10000).toFixed(2)} ha` : `${area.toFixed(0)} m²`;
+      }
+      this.toastService.info('Measurement Computed', this.lastMeasureResult);
+    });
+
+    this.map.addInteraction(this.measureDraw);
+  }
+
+  clearMeasurements(): void {
+    this.measureSource.clear();
+    this.lastMeasureResult = null;
+    if (this.measureDraw) {
+      this.map.removeInteraction(this.measureDraw);
+    }
+    this.activeMeasureTool = null;
   }
 
   onBaseMapChange(mode: string): void {
@@ -602,154 +940,116 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
         next: (list) => {
           if (list.length > 0) {
             this.authService.setActiveWorkspace(list[0]);
-            this.refreshFeatures();
-            this.loadClashes();
-            this.loadReferenceLayers();
+            this.fetchFeaturesAndClashes(list[0].id);
           }
         }
       });
-      return;
+    } else {
+      this.fetchFeaturesAndClashes(ws.id);
     }
-
-    this.refreshFeatures();
-    this.loadClashes();
-    this.loadReferenceLayers();
   }
 
-  refreshFeatures(): void {
-    const ws = this.authService.activeWorkspace();
-    if (!ws) {
-      this.workspaceService.getWorkspaces().subscribe({
-        next: (list) => {
-          if (list.length > 0) {
-            this.authService.setActiveWorkspace(list[0]);
-            this.refreshFeatures();
-          }
-        }
-      });
-      return;
-    }
-
-    this.drawingService.getFeatures(ws.id).subscribe({
-      next: (geoJson) => {
+  fetchFeaturesAndClashes(workspaceId: string): void {
+    this.drawingService.getFeatures(workspaceId).subscribe({
+      next: (geoJsonData) => {
         this.featuresSource.clear();
-        if (geoJson && geoJson.features) {
+        if (geoJsonData && geoJsonData.features && geoJsonData.features.length > 0) {
           const format = new GeoJSON();
-          const olFeatures = format.readFeatures(geoJson, {
-            featureProjection: 'EPSG:3857',
-            dataProjection: 'EPSG:4326'
+          const features = format.readFeatures(geoJsonData, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: 'EPSG:3857'
           });
-          this.featuresSource.addFeatures(olFeatures);
-          this.featureCount = olFeatures.length;
-
-          // Group features by drawing for the selector
-          const drawingMap = new Map<string, { name: string; count: number }>();
-          for (const f of olFeatures) {
-            const dId = f.get('drawingId');
-            const pName = f.get('projectName') || 'Drawing';
-            if (dId) {
-              if (!drawingMap.has(dId)) {
-                drawingMap.set(dId, { name: pName, count: 0 });
-              }
-              drawingMap.get(dId)!.count++;
-            }
-          }
-          this.availableDrawings = Array.from(drawingMap.entries()).map(([id, info]) => ({
-            id,
-            name: info.name,
-            featureCount: info.count
-          }));
-
-          if (olFeatures.length > 0) {
-            setTimeout(() => this.applyDrawingFilterOrZoom(), 200);
-          }
+          this.featuresSource.addFeatures(features);
+          this.featureCount = features.length;
+          this.populateAvailableDrawings(features);
+          this.applyDrawingFilterOrZoom();
+        } else {
+          this.featureCount = 0;
+          this.availableDrawings = [];
         }
-      },
-      error: (err) => {
-        console.error('Failed to load map features', err);
       }
     });
-  }
 
-  loadClashes(): void {
-    const ws = this.authService.activeWorkspace();
-    if (!ws) return;
-
-    this.drawingService.getClashes(ws.id).subscribe({
-      next: (clashes) => {
+    this.drawingService.getClashes(workspaceId).subscribe({
+      next: (clashes: Clash[]) => {
         this.clashesSource.clear();
-        const openClashes = clashes.filter(c => c.status === 0 || c.status === 'Open');
-        this.clashCount = openClashes.length;
+        this.clashCount = clashes.length;
+        clashes.forEach(c => {
+          if (c.lon != null && c.lat != null) {
+            const coord = fromLonLat([c.lon, c.lat]);
+            const feat = new Feature({
+              geometry: new Point(coord),
+              clashId: c.id,
+              featureAName: `${c.featureACategory} (${c.featureASubType})`,
+              featureBName: `${c.featureBCategory} (${c.featureBSubType})`,
+              separationM: c.verticalGapM
+            });
+            this.clashesSource.addFeature(feat);
+          }
+        });
+      }
+    });
 
-        for (const c of openClashes) {
-          const feat = new Feature({
-            geometry: new Point(fromLonLat([c.lon, c.lat])),
-            clashId: c.id,
-            verticalGap: c.verticalGapM,
-            notes: c.notes
-          });
-          this.clashesSource.addFeature(feat);
-        }
-      },
-      error: () => {}
+    this.drawingService.getReferenceLayers(workspaceId).subscribe({
+      next: (refs: ReferenceLayer[]) => {
+        this.referenceLayers = refs.map(r => ({ ...r, isVisible: true }));
+        this.referenceLayers.forEach(r => this.addReferenceLayerToMap(r));
+      }
     });
   }
 
-  loadReferenceLayers(): void {
-    const ws = this.authService.activeWorkspace();
-    if (!ws) return;
-
-    this.drawingService.getReferenceLayers(ws.id).subscribe({
-      next: (layers) => {
-        this.referenceLayers = layers;
-        for (const layer of layers) {
-          if (layer.geoJsonData && layer.isVisible) {
-            this.addReferenceLayerToMap(layer);
-          }
+  private populateAvailableDrawings(features: Feature[]): void {
+    const map = new Map<string, { name: string; count: number }>();
+    features.forEach(f => {
+      const dId = f.get('drawingId');
+      const pName = f.get('projectName') || 'Unnamed Drawing';
+      if (dId) {
+        if (!map.has(dId)) {
+          map.set(dId, { name: pName, count: 0 });
         }
+        map.get(dId)!.count++;
       }
     });
+    this.availableDrawings = Array.from(map.entries()).map(([id, val]) => ({
+      id,
+      name: val.name,
+      featureCount: val.count
+    }));
   }
 
   private addReferenceLayerToMap(ref: ReferenceLayer): void {
+    if (!ref.geoJsonData) return;
     try {
-      const parsed = JSON.parse(ref.geoJsonData || '{}');
       const format = new GeoJSON();
-      const features = format.readFeatures(parsed, {
-        featureProjection: 'EPSG:3857',
-        dataProjection: 'EPSG:4326'
+      const feats = format.readFeatures(JSON.parse(ref.geoJsonData), {
+        dataProjection: 'EPSG:4326',
+        featureProjection: 'EPSG:3857'
       });
-
-      const source = new VectorSource({ features });
-      const vector = new VectorLayer({
-        source,
+      const src = new VectorSource({ features: feats });
+      const layer = new VectorLayer({
+        source: src,
         style: new Style({
           stroke: new Stroke({ color: ref.color || '#3f51b5', width: 2, lineDash: [4, 4] }),
           fill: new Fill({ color: 'rgba(63, 81, 181, 0.1)' })
         })
       });
-
-      this.refLayers.set(ref.id, vector);
-      this.map.addLayer(vector);
-    } catch (e) {
-      console.warn('Could not parse reference layer GeoJSON', e);
+      this.refLayers.set(ref.id, layer);
+      this.map.addLayer(layer);
+    } catch {
+      // Ignore
     }
   }
 
-  onRefFileSelected(event: any): void {
-    const file = event.target.files[0];
-    if (file) {
-      this.selectedRefFile = file;
-      if (!this.refName) {
-        this.refName = file.name.replace(/\.[^/.]+$/, '');
-      }
+  onRefFileSelected(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      this.selectedRefFile = target.files[0];
     }
   }
 
   submitReferenceLayer(): void {
     const ws = this.authService.activeWorkspace();
     if (!ws || !this.selectedRefFile) return;
-
     this.uploadingRef = true;
     this.refUploadError = '';
 
@@ -763,10 +1063,11 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
         if (layer.geoJsonData) {
           this.addReferenceLayerToMap(layer);
         }
+        this.toastService.success('Reference Layer Added', layer.name);
       },
       error: (err) => {
         this.uploadingRef = false;
-        this.refUploadError = err.error?.message || 'Failed to upload and parse reference layer.';
+        this.refUploadError = err.error?.message || 'Failed to upload reference layer.';
       }
     });
   }
@@ -783,6 +1084,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
           this.refLayers.delete(id);
         }
         this.referenceLayers = this.referenceLayers.filter(r => r.id !== id);
+        this.toastService.info('Reference Layer Removed');
       }
     });
   }
@@ -807,7 +1109,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   zoomToExtent(): void {
     const extent = this.featuresSource.getExtent();
     if (extent && !isNaN(extent[0]) && isFinite(extent[0])) {
-      this.map.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800, maxZoom: 18 });
+      this.map.getView().fit(extent, { padding: [60, 60, 60, 60], duration: 800, maxZoom: 18 });
     }
   }
 
@@ -851,6 +1153,10 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     this.applyDrawingFilterOrZoom();
   }
 
+  focusOnDrawing(drawingId: string): void {
+    this.selectDrawingFilter(drawingId);
+  }
+
   deleteCurrentDrawing(): void {
     if (this.targetDrawingId) {
       this.deleteDrawingFromMap(this.targetDrawingId, this.selectedDrawingName || 'Drawing');
@@ -877,10 +1183,11 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
           });
         }
         this.selectedFeatureProps = null;
+        this.toastService.success('Drawing Deleted', `'${projectName}' removed from Master Plan.`);
         this.refreshFeatures();
       },
       error: (err) => {
-        alert(err.error?.message || 'Failed to delete drawing.');
+        this.toastService.error('Deletion Error', err.error?.message || 'Failed to delete drawing.');
       }
     });
   }
@@ -890,37 +1197,37 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     this.featuresLayer.changed();
   }
 
+  refreshFeatures(): void {
+    const ws = this.authService.activeWorkspace();
+    if (ws) {
+      this.fetchFeaturesAndClashes(ws.id);
+    }
+  }
+
   private getFeatureStyle(feature: any): Style | undefined {
     const isAsBuilt = feature.get('isAsBuilt') === true;
 
-    // Filter by compare mode
-    if (this.compareMode === 'gfc' && isAsBuilt) {
-      return undefined; // hide as-built
-    }
+    if (this.compareMode === 'gfc' && isAsBuilt) return undefined;
     if (this.compareMode === 'asbuilt' && !isAsBuilt) {
-      // Subdued GFC baseline
       return new Style({
         stroke: new Stroke({ color: 'rgba(150, 150, 150, 0.4)', width: 1, lineDash: [4, 4] })
       });
     }
 
-    // Check if a specific drawing is being focused
     const isTarget = !this.targetDrawingId || feature.get('drawingId') === this.targetDrawingId;
     if (this.targetDrawingId && !isTarget) {
-      // Dim features that don't belong to the focused drawing
       return new Style({
         stroke: new Stroke({ color: 'rgba(180, 180, 180, 0.25)', width: 1 }),
         fill: new Fill({ color: 'rgba(220, 220, 220, 0.08)' })
       });
     }
 
-    // If As-Built feature, highlight distinctly
     if (isAsBuilt) {
       const status = String(feature.get('complianceStatus') || '').toLowerCase();
-      let abColor = '#7b1fa2'; // Purple Extra / As-Built default
-      if (status.includes('compliant')) abColor = '#2e7d32'; // Green
-      else if (status.includes('tolerance')) abColor = '#f57f17'; // Amber
-      else if (status.includes('deviation')) abColor = '#d32f2f'; // Red
+      let abColor = '#7b1fa2';
+      if (status.includes('compliant')) abColor = '#10b981';
+      else if (status.includes('tolerance')) abColor = '#f59e0b';
+      else if (status.includes('deviation')) abColor = '#ef4444';
 
       return new Style({
         stroke: new Stroke({ color: abColor, width: this.targetDrawingId ? 5 : 4 }),
@@ -932,9 +1239,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
       });
     }
 
-    const cat = feature.get('category') || '';
     const layer = feature.get('layer') || '';
-
     let color = '#333333';
     let width = this.targetDrawingId ? 4 : 2;
 
@@ -947,8 +1252,8 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     else if (layer === 'BLDG_FOOTPRINT') {
       const isFocused = this.targetDrawingId && isTarget;
       return new Style({
-        fill: new Fill({ color: isFocused ? 'rgba(25, 118, 210, 0.5)' : 'rgba(33, 150, 243, 0.3)' }),
-        stroke: new Stroke({ color: isFocused ? '#0d47a1' : '#1976d2', width: isFocused ? 4 : 2.5 })
+        fill: new Fill({ color: isFocused ? 'rgba(37, 99, 235, 0.5)' : 'rgba(37, 99, 235, 0.3)' }),
+        stroke: new Stroke({ color: isFocused ? '#1d4ed8' : '#2563eb', width: isFocused ? 4 : 2.5 })
       });
     } else if (layer === 'CHAINAGE') {
       return new Style({
@@ -965,5 +1270,3 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 }
-
-
