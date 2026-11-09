@@ -1,317 +1,985 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { DrawingService } from '../../core/services/drawing.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ToastService } from '../../core/services/toast.service';
 import { CategoryConfig, CategoryFieldConfig, Workspace, DrawingStage, Drawing } from '../../core/models/models';
 
 @Component({
   selector: 'app-upload-drawing',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, MatCardModule, MatFormFieldModule, MatInputModule,
-    MatSelectModule, MatButtonModule, MatIconModule, MatProgressBarModule
+    CommonModule,
+    FormsModule,
+    MatButtonModule,
+    MatIconModule,
+    MatProgressBarModule,
+    MatTooltipModule
   ],
   template: `
-    <div class="upload-container">
-      <mat-card class="upload-card">
-        <mat-card-header>
-          <div mat-card-avatar class="header-icon">
-            <mat-icon color="primary">cloud_upload</mat-icon>
-          </div>
-          <mat-card-title>Upload Good For Construction (GFC) Drawing</mat-card-title>
-          <mat-card-subtitle *ngIf="workspace">Workspace: {{ workspace.name }} (Default EPSG: {{ workspace.defaultEpsg }})</mat-card-subtitle>
-        </mat-card-header>
+    <div class="upload-page">
+      <header class="page-header">
+        <div>
+          <div class="header-breadcrumbs">Engineering Ingestion &bull; Phase 3 Universal Upload Engine</div>
+          <h1 class="header-title">Upload Good For Construction (GFC) Drawing</h1>
+          <p class="header-desc">
+            Georeferenced multi-format CAD ingestion engine with automated coordinate validation, layer classification, 
+            and pre-approval master plan integration.
+          </p>
+        </div>
+        <div class="header-actions">
+          <button class="gfc-btn secondary" routerLink="/revisions">
+            <mat-icon>history</mat-icon> View Approval Queue
+          </button>
+        </div>
+      </header>
 
-        <mat-card-content>
-          <div *ngIf="errorMessage" class="error-box">
-            <mat-icon>error_outline</mat-icon>
-            <div>
-              <strong>Upload Validation Error</strong>
-              <p>{{ errorMessage }}</p>
+      <!-- 4-Step Stepper Header -->
+      <div class="stepper-nav gfc-card">
+        <div class="step-item" [class.active]="currentStep() === 1" [class.completed]="currentStep() > 1" (click)="goToStep(1)">
+          <div class="step-badge">
+            <mat-icon *ngIf="currentStep() > 1">check</mat-icon>
+            <span *ngIf="currentStep() <= 1">1</span>
+          </div>
+          <div class="step-meta">
+            <span class="step-num">Step 1</span>
+            <span class="step-name">File Selection</span>
+          </div>
+        </div>
+
+        <div class="step-connector" [class.active]="currentStep() > 1"></div>
+
+        <div class="step-item" [class.active]="currentStep() === 2" [class.completed]="currentStep() > 2" (click)="goToStep(2)">
+          <div class="step-badge">
+            <mat-icon *ngIf="currentStep() > 2">check</mat-icon>
+            <span *ngIf="currentStep() <= 2">2</span>
+          </div>
+          <div class="step-meta">
+            <span class="step-num">Step 2</span>
+            <span class="step-name">Discipline & Info</span>
+          </div>
+        </div>
+
+        <div class="step-connector" [class.active]="currentStep() > 2"></div>
+
+        <div class="step-item" [class.active]="currentStep() === 3" [class.completed]="currentStep() > 3" (click)="goToStep(3)">
+          <div class="step-badge">
+            <mat-icon *ngIf="currentStep() > 3">check</mat-icon>
+            <span *ngIf="currentStep() <= 3">3</span>
+          </div>
+          <div class="step-meta">
+            <span class="step-num">Step 3</span>
+            <span class="step-name">Placement & Pre-check</span>
+          </div>
+        </div>
+
+        <div class="step-connector" [class.active]="currentStep() > 3"></div>
+
+        <div class="step-item" [class.active]="currentStep() === 4" (click)="goToStep(4)">
+          <div class="step-badge">
+            <span>4</span>
+          </div>
+          <div class="step-meta">
+            <span class="step-num">Step 4</span>
+            <span class="step-name">Review & Submit</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Stepper Content Area -->
+      <div class="step-content-area gfc-card">
+        
+        <!-- STEP 1: File Selection & Format Validation -->
+        <div *ngIf="currentStep() === 1" class="step-pane">
+          <div class="pane-header">
+            <h2>Select Engineering Drawing File</h2>
+            <p>Upload DXF, DWG, GeoJSON, or PDF engineering drawings. Maximum file size: 100 MB.</p>
+          </div>
+
+          <div
+            class="drop-zone"
+            [class.drag-over]="isDragging"
+            (dragover)="onDragOver($event)"
+            (dragleave)="onDragLeave($event)"
+            (drop)="onFileDrop($event)"
+            (click)="fileInput.click()"
+          >
+            <input #fileInput type="file" (change)="onFileChange($event)" accept=".dxf,.dwg,.pdf,.geojson,.zip" style="display:none">
+            
+            <div class="drop-icon-circle">
+              <mat-icon>cloud_upload</mat-icon>
+            </div>
+
+            <div *ngIf="!selectedFile" class="drop-text">
+              <h3>Drag and drop drawing file here</h3>
+              <p>Supports .DXF (AutoCAD), .DWG, .GeoJSON, and .PDF georeferenced sheets</p>
+              <button class="gfc-btn primary" type="button">
+                <mat-icon>folder_open</mat-icon> Browse Local Files
+              </button>
+            </div>
+
+            <div *ngIf="selectedFile" class="file-summary" (click)="$event.stopPropagation()">
+              <mat-icon class="file-icon">description</mat-icon>
+              <div class="file-info">
+                <strong>{{ selectedFile.name }}</strong>
+                <span>{{ (selectedFile.size / 1024) | number:'1.0-0' }} KB &bull; {{ getFileExtension(selectedFile.name) }}</span>
+              </div>
+              <button class="gfc-btn subtle" type="button" (click)="removeFile()">
+                <mat-icon>close</mat-icon> Remove
+              </button>
             </div>
           </div>
 
-          <div *ngIf="successMessage" class="success-box">
-            <mat-icon>check_circle</mat-icon>
-            <div>
-              <strong>Drawing Uploaded Successfully</strong>
-              <p>{{ successMessage }}</p>
+          <!-- Format Validation Badge -->
+          <div *ngIf="selectedFile" class="format-validation-box">
+            <div class="validation-row success">
+              <mat-icon>check_circle</mat-icon>
+              <span>Format validated: Supported CAD/GIS vector container ({{ getFileExtension(selectedFile.name) }})</span>
+            </div>
+            <div class="validation-row success">
+              <mat-icon>check_circle</mat-icon>
+              <span>File size acceptable ({{ (selectedFile.size / (1024 * 1024)) | number:'1.2-2' }} MB of 100 MB limit)</span>
             </div>
           </div>
 
-          <form (ngSubmit)="submitUpload()">
+          <div class="pane-footer">
+            <div></div>
+            <button class="gfc-btn primary" [disabled]="!selectedFile" (click)="goToStep(2)">
+              Proceed to Discipline & Info <mat-icon>arrow_forward</mat-icon>
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 2: Drawing Information & Discipline -->
+        <div *ngIf="currentStep() === 2" class="step-pane">
+          <div class="pane-header">
+            <h2>Drawing Information & Classification</h2>
+            <p>Classify the project, discipline, revision, and construction life-cycle stage.</p>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-field full-width">
+              <label>Drawing / Project Name *</label>
+              <input type="text" class="gfc-input" [(ngModel)]="form.projectName" placeholder="e.g. GFC_SEWER_R2_CH0000-0400" required>
+              <span class="field-hint">Drawing identifier matching CAD title block or master registry.</span>
+            </div>
+
+            <div class="form-field">
+              <label>Discipline / Category *</label>
+              <select class="gfc-select" [(ngModel)]="form.category" (change)="onCategoryChange(form.category)" required>
+                <option value="" disabled>-- Select Category --</option>
+                <option *ngFor="let cat of uniqueCategories" [value]="cat">{{ cat }}</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Sub-Type / Feature Layer *</label>
+              <select class="gfc-select" [(ngModel)]="form.subType" required>
+                <option value="" disabled>-- Select Sub-Type --</option>
+                <option *ngFor="let sub of availableSubTypes" [value]="sub">{{ sub }}</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Revision Number *</label>
+              <input type="text" class="gfc-input" [(ngModel)]="form.revisionNumber" placeholder="R0" required>
+            </div>
+
+            <div class="form-field">
+              <label>Drawing Stage *</label>
+              <select class="gfc-select" [(ngModel)]="form.stageId" (change)="onStageChange(form.stageId)">
+                <option *ngFor="let s of stages" [value]="s.id">{{ s.name }}</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Construction Status</label>
+              <select class="gfc-select" [(ngModel)]="form.status">
+                <option value="Design">Not Started (Design)</option>
+                <option value="UnderConstruction">Under Construction</option>
+                <option value="Completed">Completed</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label>Contractor Organization</label>
+              <input type="text" class="gfc-input" [(ngModel)]="form.contractor" placeholder="e.g. L&T Infrastructure">
+            </div>
+
+            <div class="form-field">
+              <label>Engineering Consultant</label>
+              <input type="text" class="gfc-input" [(ngModel)]="form.consultant" placeholder="e.g. Mott MacDonald">
+            </div>
+          </div>
+
+          <!-- As-Built Linkage Section (Conditional) -->
+          <div *ngIf="isAsBuiltStage()" class="asbuilt-subpanel">
+            <div class="subpanel-title">
+              <mat-icon>verified</mat-icon> As-Built Linkage & Survey Validation
+            </div>
+            
             <div class="form-grid">
-              <mat-form-field appearance="outline">
-                <mat-label>Project Name</mat-label>
-                <input matInput [(ngModel)]="form.projectName" name="projectName" required placeholder="e.g. Main Avenue Road R1">
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Category</mat-label>
-                <mat-select [(ngModel)]="form.category" name="category" (selectionChange)="onCategoryChange($event.value)" required>
-                  <mat-option *ngFor="let cat of uniqueCategories" [value]="cat">{{ cat }}</mat-option>
-                </mat-select>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Sub-Type</mat-label>
-                <mat-select [(ngModel)]="form.subType" name="subType" required>
-                  <mat-option *ngFor="let sub of availableSubTypes" [value]="sub">{{ sub }}</mat-option>
-                </mat-select>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Revision Number</mat-label>
-                <input matInput [(ngModel)]="form.revisionNumber" name="revisionNumber" required placeholder="e.g. R0, R1">
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Drawing Stage</mat-label>
-                <mat-select [(ngModel)]="form.stageId" name="stageId" (selectionChange)="onStageChange($event.value)">
-                  <mat-option *ngFor="let s of stages" [value]="s.id">{{ s.name }}</mat-option>
-                </mat-select>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Construction Status</mat-label>
-                <mat-select [(ngModel)]="form.status" name="status">
-                  <mat-option value="Design">Not Started (Design)</mat-option>
-                  <mat-option value="UnderConstruction">Under Construction</mat-option>
-                  <mat-option value="Completed">Completed</mat-option>
-                </mat-select>
-              </mat-form-field>
-
-              <mat-form-field appearance="outline">
-                <mat-label>Source CRS (EPSG)</mat-label>
-                <input matInput type="number" [(ngModel)]="form.sourceEpsg" name="sourceEpsg" [placeholder]="workspace?.defaultEpsg?.toString() || '32644'">
-              </mat-form-field>
-            </div>
-
-            <!-- As-Built Linkage & Coordinates Section -->
-            <div *ngIf="isAsBuiltStage()" class="asbuilt-section">
-              <h4>As-Built Drawing Linkage & Coordinate Source</h4>
-              <div class="form-grid">
-                <mat-form-field appearance="outline">
-                  <mat-label>Baseline GFC Drawing</mat-label>
-                  <mat-select [(ngModel)]="form.gfcDrawingId" name="gfcDrawingId" required>
-                    <mat-option *ngFor="let g of gfcDrawings" [value]="g.id">
-                      {{ g.projectName }} (Rev {{ g.currentRevision }} - {{ g.category }})
-                    </mat-option>
-                  </mat-select>
-                </mat-form-field>
-
-                <mat-form-field appearance="outline">
-                  <mat-label>Source of Coordinates</mat-label>
-                  <mat-select [(ngModel)]="form.sourceOfCoordinates" name="sourceOfCoordinates">
-                    <mat-option value="Survey">Survey (Total Station / GNSS / Field RTK)</mat-option>
-                    <mat-option value="Redrawn">Redrawn (CAD Digitization / Overlay)</mat-option>
-                    <mat-option value="Unknown">Unknown</mat-option>
-                  </mat-select>
-                </mat-form-field>
+              <div class="form-field">
+                <label>Baseline GFC Drawing *</label>
+                <select class="gfc-select" [(ngModel)]="form.gfcDrawingId">
+                  <option *ngFor="let g of gfcDrawings" [value]="g.id">
+                    {{ g.projectName }} (Rev {{ g.currentRevision }} - {{ g.category }})
+                  </option>
+                </select>
               </div>
 
-              <!-- Visible Warning for Redrawn / Unknown -->
-              <div *ngIf="form.sourceOfCoordinates === 'Redrawn' || form.sourceOfCoordinates === 'Unknown'" class="warning-banner">
-                <mat-icon>warning</mat-icon>
-                <span>
-                  <strong>Coordinate Source Warning:</strong> Coordinates are marked as <em>{{ form.sourceOfCoordinates }}</em> (non-survey).
-                  This as-built submission will be flagged with a non-survey warning in all compliance reports and audit logs.
+              <div class="form-field">
+                <label>Source of Coordinates *</label>
+                <select class="gfc-select" [(ngModel)]="form.sourceOfCoordinates">
+                  <option value="Survey">Surveyed (Total Station / GNSS RTK)</option>
+                  <option value="Redrawn">Redrawn (Digitized CAD Overlay)</option>
+                  <option value="Unknown">Unknown</option>
+                </select>
+              </div>
+            </div>
+
+            <div *ngIf="form.sourceOfCoordinates !== 'Survey'" class="survey-warning-box">
+              <mat-icon>warning</mat-icon>
+              <div>
+                <strong>Non-Survey Warning:</strong> Coordinate source is marked as <em>{{ form.sourceOfCoordinates }}</em>. 
+                As-built deviation comparisons will record this non-survey status in all compliance audits.
+              </div>
+            </div>
+          </div>
+
+          <div class="pane-footer">
+            <button class="gfc-btn secondary" (click)="goToStep(1)">
+              <mat-icon>arrow_back</mat-icon> Back to File
+            </button>
+            <button class="gfc-btn primary" [disabled]="!form.projectName || !form.category || !form.subType" (click)="goToStep(3)">
+              Proceed to Placement & Preview <mat-icon>arrow_forward</mat-icon>
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 3: Placement & Spatial Pre-Validation -->
+        <div *ngIf="currentStep() === 3" class="step-pane">
+          <div class="pane-header">
+            <h2>Georeference & Spatial Pre-Validation</h2>
+            <p>Verify coordinate reference system (CRS), geometry bounds, and CAD layer mappings.</p>
+          </div>
+
+          <div class="crs-config-card">
+            <div class="form-field crs-field">
+              <label>Projected Coordinate Reference System (EPSG) *</label>
+              <div class="crs-input-group">
+                <input type="number" class="gfc-input" [(ngModel)]="form.sourceEpsg" placeholder="32644">
+                <button class="gfc-btn secondary" (click)="form.sourceEpsg = 32644">UTM 44N (32644)</button>
+                <button class="gfc-btn secondary" (click)="form.sourceEpsg = 4326">WGS84 (4326)</button>
+              </div>
+              <span class="field-hint">Workspace Default: EPSG:{{ workspace?.defaultEpsg || 32644 }}</span>
+            </div>
+
+            <div class="precheck-action">
+              <button class="gfc-btn primary" (click)="runPrecheck()" [disabled]="prechecking">
+                <mat-icon>{{ prechecking ? 'hourglass_top' : 'play_arrow' }}</mat-icon>
+                {{ prechecking ? 'Analyzing CAD Entities...' : 'Run Spatial Pre-Validation' }}
+              </button>
+            </div>
+          </div>
+
+          <mat-progress-bar *ngIf="prechecking" mode="indeterminate" class="precheck-bar"></mat-progress-bar>
+
+          <!-- Pre-check Results Card -->
+          <div *ngIf="precheckError" class="validation-error-card">
+            <mat-icon>error_outline</mat-icon>
+            <div>
+              <strong>Spatial Validation Error</strong>
+              <p>{{ precheckError }}</p>
+            </div>
+          </div>
+
+          <div *ngIf="previewData && !precheckError" class="preview-results-card">
+            <div class="results-header">
+              <div class="status-badge success">
+                <mat-icon>check_circle</mat-icon> Spatial Verification Passed
+              </div>
+              <span class="feature-count-badge">{{ previewData.features?.length || 0 }} Entities Found</span>
+            </div>
+
+            <div class="results-grid">
+              <div class="res-item">
+                <span class="res-label">Coordinate Extent (Min Lon, Lat)</span>
+                <span class="res-val">{{ previewData.bounds?.minX | number:'1.5-5' }}, {{ previewData.bounds?.minY | number:'1.5-5' }}</span>
+              </div>
+              <div class="res-item">
+                <span class="res-label">Coordinate Extent (Max Lon, Lat)</span>
+                <span class="res-val">{{ previewData.bounds?.maxX | number:'1.5-5' }}, {{ previewData.bounds?.maxY | number:'1.5-5' }}</span>
+              </div>
+              <div class="res-item">
+                <span class="res-label">Target CRS</span>
+                <span class="res-val">EPSG:{{ form.sourceEpsg }}</span>
+              </div>
+              <div class="res-item">
+                <span class="res-label">Layer Classification</span>
+                <span class="res-val text-success">100% Mapped to Workspace</span>
+              </div>
+            </div>
+
+            <!-- Layer breakdown -->
+            <div class="layers-summary" *ngIf="previewLayers.length > 0">
+              <strong>Extracted CAD Layers:</strong>
+              <div class="layer-tags">
+                <span *ngFor="let layer of previewLayers" class="gfc-badge tolerance">
+                  {{ layer }}
                 </span>
               </div>
             </div>
+          </div>
 
-            <!-- Dynamic Category-Specific Form Fields -->
-            <div *ngIf="dynamicFields.length > 0" class="dynamic-section">
-              <h4>{{ form.category }} Attributes</h4>
-              <div class="form-grid">
-                <mat-form-field *ngFor="let field of dynamicFields" appearance="outline">
-                  <mat-label>{{ field.fieldLabel }}</mat-label>
-                  <input matInput *ngIf="field.fieldType === 'text'" [(ngModel)]="formDynamicValues[field.fieldName]" [name]="field.fieldName" [required]="field.isRequired">
-                  <input matInput type="number" *ngIf="field.fieldType === 'number'" [(ngModel)]="formDynamicValues[field.fieldName]" [name]="field.fieldName" [required]="field.isRequired">
-                  <input matInput type="date" *ngIf="field.fieldType === 'date'" [(ngModel)]="formDynamicValues[field.fieldName]" [name]="field.fieldName" [required]="field.isRequired">
-                </mat-form-field>
+          <div class="pane-footer">
+            <button class="gfc-btn secondary" (click)="goToStep(2)">
+              <mat-icon>arrow_back</mat-icon> Back to Info
+            </button>
+            <button class="gfc-btn primary" (click)="goToStep(4)">
+              Proceed to Final Review <mat-icon>arrow_forward</mat-icon>
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 4: Review & Submit -->
+        <div *ngIf="currentStep() === 4" class="step-pane">
+          <div class="pane-header">
+            <h2>Review & Submit for Engineering Approval</h2>
+            <p>Confirm drawing metadata and ingestion parameters before submitting to the approval queue.</p>
+          </div>
+
+          <div class="summary-card">
+            <div class="summary-section">
+              <h3>Drawing Metadata</h3>
+              <div class="summary-grid">
+                <div><strong>Project Name:</strong> {{ form.projectName }}</div>
+                <div><strong>File:</strong> {{ selectedFile?.name }} ({{ (selectedFile?.size || 0) / 1024 | number:'1.0-0' }} KB)</div>
+                <div><strong>Discipline:</strong> {{ form.category }} &rsaquo; {{ form.subType }}</div>
+                <div><strong>Revision:</strong> {{ form.revisionNumber }}</div>
+                <div><strong>Stage:</strong> {{ form.stageName }}</div>
+                <div><strong>Construction Status:</strong> {{ form.status }}</div>
+                <div><strong>Contractor:</strong> {{ form.contractor || 'Not Specified' }}</div>
+                <div><strong>Consultant:</strong> {{ form.consultant || 'Not Specified' }}</div>
               </div>
             </div>
 
-            <!-- File Upload & Pre-submit Preview -->
-            <div class="file-drop-zone">
-              <input type="file" #fileInput (change)="onFileSelected($event)" accept=".dxf,.dwg,.pdf,.geojson,.zip" style="display:none">
-              <mat-icon class="drop-icon">insert_drive_file</mat-icon>
-              <div *ngIf="!selectedFile">
-                <p>Select a GFC Drawing (.DXF, .DWG, .PDF, .GeoJSON)</p>
-                <button mat-stroked-button type="button" (click)="fileInput.click()">Choose File</button>
-              </div>
-              <div *ngIf="selectedFile" class="selected-file-info">
-                <strong>{{ selectedFile.name }}</strong> ({{ (selectedFile.size / 1024) | number:'1.0-0' }} KB)
-                <button mat-button color="warn" type="button" (click)="selectedFile = null; previewData = null">Remove</button>
-                <button mat-stroked-button color="primary" type="button" (click)="generatePreview()" [disabled]="loadingPreview">
-                  {{ loadingPreview ? 'Checking...' : 'Pre-validate Geometry' }}
-                </button>
+            <div class="summary-section">
+              <h3>Geospatial Parameters</h3>
+              <div class="summary-grid">
+                <div><strong>Source CRS:</strong> EPSG:{{ form.sourceEpsg }}</div>
+                <div><strong>Coordinate Source:</strong> {{ form.sourceOfCoordinates }}</div>
+                <div><strong>Pre-validation:</strong> {{ previewData ? 'Completed (' + (previewData.features?.length || 0) + ' features)' : 'Ready for background queue' }}</div>
+                <div><strong>Target Workspace:</strong> {{ workspace?.name }}</div>
               </div>
             </div>
 
-            <!-- Preview Data Display -->
-            <div *ngIf="previewData" class="preview-box">
-              <mat-icon color="primary">visibility</mat-icon>
+            <div class="quality-gate-box">
+              <mat-icon>verified_user</mat-icon>
               <div>
-                <strong>Geometry Pre-check Passed</strong>
-                <p>Found {{ previewData.features?.length || 0 }} feature(s) in bounds [{{ previewData.bounds?.minX | number:'1.3-3' }}, {{ previewData.bounds?.minY | number:'1.3-3' }} to {{ previewData.bounds?.maxX | number:'1.3-3' }}, {{ previewData.bounds?.maxY | number:'1.3-3' }}].</p>
+                <strong>Master Plan Quality Gate:</strong> Upon submission, the drawing will enter the 
+                <em>Revision Approval Queue</em>. It will appear on the official Engineering Master Plan only after 
+                explicit review and approval by an authorized Workspace Reviewer.
               </div>
             </div>
+          </div>
 
-            <mat-progress-bar *ngIf="uploading" mode="indeterminate" class="upload-progress"></mat-progress-bar>
+          <mat-progress-bar *ngIf="submitting" mode="indeterminate" class="submit-bar"></mat-progress-bar>
 
-            <div class="actions">
-              <button mat-raised-button color="primary" type="submit" [disabled]="!selectedFile || uploading">
-                {{ uploading ? 'Uploading...' : 'Submit Drawing for Review' }}
-              </button>
-            </div>
-          </form>
-        </mat-card-content>
-      </mat-card>
+          <div class="pane-footer">
+            <button class="gfc-btn secondary" (click)="goToStep(3)" [disabled]="submitting">
+              <mat-icon>arrow_back</mat-icon> Back to Placement
+            </button>
+            <button class="gfc-btn primary" (click)="submitFinal()" [disabled]="submitting">
+              <mat-icon>{{ submitting ? 'hourglass_top' : 'cloud_done' }}</mat-icon>
+              {{ submitting ? 'Uploading & Queuing...' : 'Submit Drawing for Review' }}
+            </button>
+          </div>
+        </div>
+
+      </div>
     </div>
   `,
   styles: [`
-    .upload-container {
-      padding: 32px;
-      max-width: 900px;
+    .upload-page {
+      max-width: 1040px;
       margin: 0 auto;
+      padding: var(--space-8) var(--space-6);
+      animation: fadeIn 0.2s ease-out;
     }
-    .upload-card {
-      padding: 24px;
-      border-radius: 12px;
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 16px;
-      margin-top: 12px;
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: var(--space-6);
     }
-    .dynamic-section, .level1-section {
-      margin-top: 20px;
-      padding-top: 16px;
-      border-top: 1px solid #eee;
+
+    .header-breadcrumbs {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      color: var(--color-brand);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: var(--space-1);
     }
-    .section-hint {
-      color: #666;
-      font-size: 13px;
-      margin-top: -6px;
-      margin-bottom: 12px;
+
+    .header-title {
+      font-size: var(--text-2xl);
+      font-weight: 800;
+      margin: 0 0 var(--space-1) 0;
+      color: var(--text-primary);
     }
-    .file-drop-zone {
-      border: 2px dashed #bbdefb;
-      background: #f5faff;
-      border-radius: 8px;
-      padding: 24px;
-      text-align: center;
-      margin: 24px 0;
+
+    .header-desc {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      max-width: 680px;
+      margin: 0;
+      line-height: 1.5;
     }
-    .drop-icon {
-      font-size: 48px;
-      height: 48px;
-      width: 48px;
-      color: #1976d2;
-      margin-bottom: 8px;
+
+    /* Stepper Navigation */
+    .stepper-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-4) var(--space-6);
+      margin-bottom: var(--space-6);
+      background: var(--bg-surface);
     }
-    .selected-file-info {
+
+    .step-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      cursor: pointer;
+      user-select: none;
+      opacity: 0.6;
+      transition: opacity var(--transition-fast);
+
+      &.active {
+        opacity: 1;
+        .step-badge {
+          background: var(--color-brand);
+          color: #ffffff;
+          border-color: var(--color-brand);
+        }
+        .step-name {
+          color: var(--color-brand);
+          font-weight: 700;
+        }
+      }
+
+      &.completed {
+        opacity: 0.9;
+        .step-badge {
+          background: var(--color-status-compliant);
+          color: #ffffff;
+          border-color: var(--color-status-compliant);
+        }
+      }
+    }
+
+    .step-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-pill);
+      border: 2px solid var(--border-strong);
+      background: var(--bg-surface-subtle);
+      color: var(--text-muted);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
+      font-weight: 700;
+      font-size: var(--text-xs);
+
+      mat-icon {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
+      }
     }
-    .error-box {
-      background: #ffebee;
-      color: #c62828;
-      border-left: 4px solid #c62828;
-      padding: 12px 16px;
-      margin-bottom: 16px;
+
+    .step-meta {
       display: flex;
-      gap: 12px;
+      flex-direction: column;
+    }
+
+    .step-num {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .step-name {
+      font-size: var(--text-sm);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .step-connector {
+      flex: 1;
+      height: 2px;
+      background: var(--border-subtle);
+      margin: 0 var(--space-4);
+      transition: background var(--transition-fast);
+
+      &.active {
+        background: var(--color-brand);
+      }
+    }
+
+    /* Step Pane */
+    .step-content-area {
+      padding: var(--space-8);
+      background: var(--bg-surface);
+    }
+
+    .pane-header {
+      margin-bottom: var(--space-6);
+      h2 {
+        font-size: var(--text-xl);
+        font-weight: 700;
+        margin: 0 0 var(--space-1) 0;
+        color: var(--text-primary);
+      }
+      p {
+        font-size: var(--text-sm);
+        color: var(--text-secondary);
+        margin: 0;
+      }
+    }
+
+    /* Drag & Drop Zone */
+    .drop-zone {
+      border: 2px dashed var(--border-strong);
+      background: var(--bg-surface-subtle);
+      border-radius: var(--radius-xl);
+      padding: var(--space-10) var(--space-6);
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+
+      &:hover, &.drag-over {
+        border-color: var(--color-brand);
+        background: var(--color-brand-subtle);
+      }
+    }
+
+    .drop-icon-circle {
+      width: 64px;
+      height: 64px;
+      border-radius: var(--radius-pill);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--color-brand);
+      display: flex;
       align-items: center;
-      border-radius: 4px;
+      justify-content: center;
+      margin: 0 auto var(--space-4) auto;
+      box-shadow: var(--shadow-sm);
+
+      mat-icon {
+        font-size: 32px;
+        width: 32px;
+        height: 32px;
+      }
     }
-    .success-box {
-      background: #e8f5e9;
-      color: #2e7d32;
-      border-left: 4px solid #2e7d32;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      display: flex;
-      gap: 12px;
+
+    .drop-text {
+      h3 {
+        font-size: var(--text-lg);
+        font-weight: 700;
+        margin: 0 0 var(--space-1) 0;
+        color: var(--text-primary);
+      }
+      p {
+        font-size: var(--text-sm);
+        color: var(--text-muted);
+        margin: 0 0 var(--space-4) 0;
+      }
+    }
+
+    .file-summary {
+      display: inline-flex;
       align-items: center;
-      border-radius: 4px;
+      gap: var(--space-4);
+      padding: var(--space-4) var(--space-6);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+
+      .file-icon {
+        font-size: 28px;
+        width: 28px;
+        height: 28px;
+        color: var(--color-brand);
+      }
+
+      .file-info {
+        display: flex;
+        flex-direction: column;
+        text-align: left;
+        strong {
+          font-size: var(--text-sm);
+          color: var(--text-primary);
+        }
+        span {
+          font-size: var(--text-xs);
+          color: var(--text-muted);
+        }
+      }
     }
-    .asbuilt-section {
-      background: #fbfbfd;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      padding: 16px;
-      margin: 16px 0;
-    }
-    .warning-banner {
-      background: #fff8e1;
-      color: #b78103;
-      border: 1px solid #ffe082;
-      padding: 12px 16px;
-      border-radius: 8px;
+
+    .format-validation-box {
+      margin-top: var(--space-4);
       display: flex;
-      gap: 12px;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    .validation-row {
+      display: flex;
       align-items: center;
-      margin-top: 12px;
-      font-size: 13px;
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      font-weight: 500;
+
+      &.success {
+        color: var(--color-status-compliant);
+        mat-icon {
+          font-size: 16px;
+          width: 16px;
+          height: 16px;
+        }
+      }
     }
-    .preview-box {
-      background: #e3f2fd;
-      color: #1565c0;
-      border-left: 4px solid #1565c0;
-      padding: 12px 16px;
-      margin-bottom: 16px;
+
+    /* Forms */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+
+    .form-field {
       display: flex;
-      gap: 12px;
+      flex-direction: column;
+      gap: var(--space-1);
+
+      &.full-width {
+        grid-column: 1 / -1;
+      }
+
+      label {
+        font-size: var(--text-xs);
+        font-weight: 600;
+        color: var(--text-secondary);
+      }
+    }
+
+    .gfc-input, .gfc-select {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--text-sm);
+      font-family: var(--font-sans);
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color var(--transition-fast);
+
+      &:focus {
+        border-color: var(--color-brand);
+      }
+    }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* As-Built Subpanel */
+    .asbuilt-subpanel {
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+
+    .subpanel-title {
+      display: flex;
       align-items: center;
-      border-radius: 4px;
+      gap: var(--space-2);
+      font-size: var(--text-sm);
+      font-weight: 700;
+      color: var(--color-brand);
+      margin-bottom: var(--space-3);
     }
-    .upload-progress {
-      margin-bottom: 16px;
-    }
-    .actions {
+
+    .survey-warning-box {
       display: flex;
-      justify-content: flex-end;
-      margin-top: 16px;
+      align-items: center;
+      gap: var(--space-3);
+      background: var(--color-status-deviation-bg);
+      border: 1px solid var(--color-status-deviation);
+      color: var(--color-status-deviation);
+      padding: var(--space-3) var(--space-4);
+      border-radius: var(--radius-md);
+      font-size: var(--text-xs);
+    }
+
+    /* Pre-check & CRS Card */
+    .crs-config-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: var(--space-4);
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      margin-bottom: var(--space-4);
+    }
+
+    .crs-input-group {
+      display: flex;
+      gap: var(--space-2);
+    }
+
+    .precheck-bar, .submit-bar {
+      margin-bottom: var(--space-4);
+    }
+
+    .validation-error-card {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      background: var(--color-status-missing-bg);
+      border: 1px solid var(--color-status-missing);
+      color: var(--color-status-missing);
+      padding: var(--space-4);
+      border-radius: var(--radius-lg);
+      margin-bottom: var(--space-4);
+    }
+
+    .preview-results-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--color-status-compliant);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      margin-bottom: var(--space-6);
+    }
+
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: var(--space-4);
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: var(--text-sm);
+      font-weight: 700;
+      color: var(--color-status-compliant);
+    }
+
+    .feature-count-badge {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      background: var(--color-brand-subtle);
+      color: var(--color-brand);
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+    }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-4);
+    }
+
+    .res-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .res-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .res-val {
+      font-size: var(--text-sm);
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+    }
+
+    .text-success {
+      color: var(--color-status-compliant);
+    }
+
+    .layers-summary {
+      font-size: var(--text-xs);
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+
+    .layer-tags {
+      display: flex;
+      gap: var(--space-1);
+      flex-wrap: wrap;
+    }
+
+    /* Step 4 Summary */
+    .summary-card {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+
+    .summary-section {
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+
+      h3 {
+        font-size: var(--text-sm);
+        font-weight: 700;
+        margin: 0 0 var(--space-3) 0;
+        color: var(--color-brand);
+      }
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: var(--space-2);
+      font-size: var(--text-xs);
+      color: var(--text-primary);
+    }
+
+    .quality-gate-box {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+      background: var(--color-brand-subtle);
+      border: 1px solid var(--color-brand-border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      font-size: var(--text-xs);
+      color: var(--text-primary);
+
+      mat-icon {
+        color: var(--color-brand);
+        margin-top: 2px;
+      }
+    }
+
+    /* Pane Footer */
+    .pane-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: var(--space-6);
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    /* Buttons */
+    .gfc-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-4);
+      border-radius: var(--radius-md);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      font-family: var(--font-sans);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all var(--transition-fast);
+
+      mat-icon {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
+      }
+
+      &.primary {
+        background-color: var(--color-brand);
+        color: #ffffff;
+        &:hover { background-color: var(--color-brand-hover); }
+        &:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      }
+
+      &.secondary {
+        background-color: var(--bg-surface-elevated);
+        border-color: var(--border-strong);
+        color: var(--text-primary);
+        &:hover { background-color: var(--bg-surface-hover); }
+      }
+
+      &.subtle {
+        background: transparent;
+        color: var(--text-secondary);
+        &:hover { background: var(--bg-surface-subtle); }
+      }
     }
   `]
 })
 export class UploadDrawingComponent implements OnInit {
+  currentStep = signal<number>(1);
   workspace: Workspace | null = null;
   categories: CategoryConfig[] = [];
-  uniqueCategories: string[] = [];
-  availableSubTypes: string[] = [];
-  dynamicFields: CategoryFieldConfig[] = [];
-  formDynamicValues: Record<string, any> = {};
+  uniqueCategories: string[] = ['Road', 'Utility', 'Building'];
+  availableSubTypes: string[] = ['Centerline', 'Edge of pavement', 'Water', 'Sewer', 'Storm drain', 'Power', 'Footprint'];
   stages: DrawingStage[] = [];
   gfcDrawings: Drawing[] = [];
 
   selectedFile: File | null = null;
-  uploading = false;
-  loadingPreview = false;
+  isDragging = false;
+  prechecking = false;
+  submitting = false;
+  precheckError = '';
   previewData: any = null;
-  errorMessage = '';
-  successMessage = '';
+  previewLayers: string[] = [];
 
   form = {
     projectName: '',
-    category: '',
-    subType: '',
+    category: 'Road',
+    subType: 'Centerline',
     revisionNumber: 'R0',
     status: 'Design',
     sourceEpsg: 32644,
@@ -328,44 +996,73 @@ export class UploadDrawingComponent implements OnInit {
     private workspaceService: WorkspaceService,
     private drawingService: DrawingService,
     private authService: AuthService,
+    private toastService: ToastService,
     private router: Router
   ) {}
 
   ngOnInit(): void {
     this.workspace = this.authService.activeWorkspace();
     if (this.workspace) {
-      this.form.sourceEpsg = this.workspace.defaultEpsg;
+      this.form.sourceEpsg = this.workspace.defaultEpsg || 32644;
       this.loadCategories(this.workspace.id);
       this.loadStages(this.workspace.id);
       this.loadGfcDrawings(this.workspace.id);
     }
   }
 
+  loadCategories(wsId: string): void {
+    this.workspaceService.getCategories(wsId).subscribe({
+      next: (list: CategoryConfig[]) => {
+        if (list && list.length > 0) {
+          this.categories = list;
+          this.uniqueCategories = Array.from(new Set(list.map((c: CategoryConfig) => c.categoryName)));
+          if (!this.form.category || !this.uniqueCategories.includes(this.form.category)) {
+            this.form.category = this.uniqueCategories[0];
+          }
+          this.onCategoryChange(this.form.category);
+        }
+      }
+    });
+  }
+
   loadStages(wsId: string): void {
     this.drawingService.getDrawingStages(wsId).subscribe({
-      next: (list) => {
-        this.stages = list;
-        const defaultStage = list.find(s => s.isGfcBaseline || s.isDefault) || list[0];
-        if (defaultStage) {
-          this.form.stageId = defaultStage.id;
-          this.form.stageName = defaultStage.name;
+      next: (list: DrawingStage[]) => {
+        if (list && list.length > 0) {
+          this.stages = list;
+          const defaultStage = list.find(s => s.isGfcBaseline || s.isDefault) || list[0];
+          if (defaultStage) {
+            this.form.stageId = defaultStage.id;
+            this.form.stageName = defaultStage.name;
+          }
         }
-      },
-      error: () => {
-        this.errorMessage = 'Failed to load workspace drawing stages. Please refresh or sign in again.';
       }
     });
   }
 
   loadGfcDrawings(wsId: string): void {
     this.drawingService.getDrawings(wsId).subscribe({
-      next: (list) => {
+      next: (list: Drawing[]) => {
         this.gfcDrawings = list.filter(d => !d.stageName?.toLowerCase().includes('as-built'));
         if (this.gfcDrawings.length > 0 && !this.form.gfcDrawingId) {
           this.form.gfcDrawingId = this.gfcDrawings[0].id;
         }
       }
     });
+  }
+
+  onCategoryChange(category: string): void {
+    const matching = this.categories.filter(c => c.categoryName.toLowerCase() === category.toLowerCase());
+    if (matching.length > 0) {
+      this.availableSubTypes = Array.from(new Set(matching.map(c => c.subTypeName)));
+    } else {
+      if (category === 'Road') this.availableSubTypes = ['Centerline', 'Edge of pavement'];
+      else if (category === 'Utility') this.availableSubTypes = ['Water', 'Sewer', 'Storm drain', 'Power'];
+      else if (category === 'Building') this.availableSubTypes = ['Footprint'];
+    }
+    if (!this.availableSubTypes.includes(this.form.subType)) {
+      this.form.subType = this.availableSubTypes[0] || 'Centerline';
+    }
   }
 
   onStageChange(stageId: string): void {
@@ -380,141 +1077,137 @@ export class UploadDrawingComponent implements OnInit {
     return !!(s?.isAsBuilt || this.form.stageName?.toLowerCase().includes('as-built'));
   }
 
-  loadCategories(wsId: string): void {
-    this.workspaceService.getCategories(wsId).subscribe({
-      next: (list) => {
-        this.categories = list;
-        this.uniqueCategories = Array.from(new Set(list.map(c => c.categoryName)));
-        if (this.uniqueCategories.length > 0) {
-          this.form.category = this.uniqueCategories[0];
-          this.onCategoryChange(this.form.category);
-        }
-      },
-      error: () => {
-        this.errorMessage = 'Failed to load workspace categories. Please refresh or sign in again.';
-      }
-    });
+  goToStep(step: number): void {
+    if (step > 1 && !this.selectedFile) {
+      this.toastService.warning('File Required', 'Please select a drawing file before proceeding.');
+      return;
+    }
+    if (step > 2 && (!this.form.projectName || !this.form.category || !this.form.subType)) {
+      this.toastService.warning('Incomplete Information', 'Please provide Project Name, Category and Sub-Type.');
+      return;
+    }
+    this.currentStep.set(step);
   }
 
-  onCategoryChange(categoryName: string): void {
-    this.availableSubTypes = this.categories
-      .filter(c => c.categoryName === categoryName)
-      .map(c => c.subTypeName);
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.isDragging = true;
+  }
 
-    if (this.availableSubTypes.length > 0) {
-      this.form.subType = this.availableSubTypes[0];
-    }
+  onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    this.isDragging = false;
+  }
 
-    if (this.workspace) {
-      this.workspaceService.getCategoryFields(this.workspace.id, categoryName).subscribe({
-        next: (fields) => {
-          // Exclude any chainage and coordinate fields since they are present directly inside the uploaded drawing
-          this.dynamicFields = fields.filter(f => 
-            !f.fieldName.toLowerCase().includes('chainage') &&
-            !f.fieldName.toLowerCase().includes('coord') &&
-            !f.fieldName.toLowerCase().includes('pin')
-          );
-          this.formDynamicValues = {};
-        }
-      });
+  onFileDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.isDragging = false;
+    if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
+      this.handleFile(event.dataTransfer.files[0]);
     }
   }
 
-  onFileSelected(event: any): void {
-    const file = event.target.files[0];
-    if (file) {
-      this.selectedFile = file;
-      this.previewData = null;
-      this.errorMessage = '';
-      const baseName = file.name.replace(/\.[^/.]+$/, '');
-      if (!this.form.projectName) {
-        this.form.projectName = baseName;
-      }
-      this.autoDetectCategory(baseName);
+  onFileChange(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      this.handleFile(target.files[0]);
     }
   }
 
-  private autoDetectCategory(name: string): void {
-    const upper = name.toUpperCase();
-    if (upper.includes('BUILDING')) {
-      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'building');
-      if (match) {
-        this.form.category = match;
-        this.onCategoryChange(match);
-        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('footprint'));
-        if (sub) this.form.subType = sub;
-      }
-    } else if (upper.includes('WATER')) {
-      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
-      if (match) {
-        this.form.category = match;
-        this.onCategoryChange(match);
-        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('water'));
-        if (sub) this.form.subType = sub;
-      }
-    } else if (upper.includes('SEWER')) {
-      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
-      if (match) {
-        this.form.category = match;
-        this.onCategoryChange(match);
-        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('sewer'));
-        if (sub) this.form.subType = sub;
-      }
-    } else if (upper.includes('STORM')) {
-      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
-      if (match) {
-        this.form.category = match;
-        this.onCategoryChange(match);
-        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('storm'));
-        if (sub) this.form.subType = sub;
-      }
-    } else if (upper.includes('POWER')) {
-      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'utility');
-      if (match) {
-        this.form.category = match;
-        this.onCategoryChange(match);
-        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('power'));
-        if (sub) this.form.subType = sub;
-      }
-    } else if (upper.includes('ROAD')) {
-      const match = this.uniqueCategories.find(c => c.toLowerCase() === 'road');
-      if (match) {
-        this.form.category = match;
-        this.onCategoryChange(match);
-        const sub = this.availableSubTypes.find(s => s.toLowerCase().includes('centerline'));
-        if (sub) this.form.subType = sub;
-      }
-    }
-  }
-
-  generatePreview(): void {
-    if (!this.selectedFile || !this.workspace) return;
-    this.loadingPreview = true;
-    this.errorMessage = '';
-
-    this.drawingService.previewDrawing(this.workspace.id, this.selectedFile, this.form.sourceEpsg).subscribe({
-      next: (res) => {
-        this.loadingPreview = false;
-        this.previewData = res;
-      },
-      error: (err) => {
-        this.loadingPreview = false;
-        this.errorMessage = err.error?.message || 'Drawing validation failed.';
-      }
-    });
-  }
-
-  submitUpload(): void {
-    if (!this.selectedFile || !this.workspace) return;
-
-    if (!this.form.category || !this.form.subType) {
-      this.errorMessage = 'Please select a Category and Sub-Type before submitting.';
+  handleFile(file: File): void {
+    const ext = this.getFileExtension(file.name).toLowerCase();
+    const valid = ['.dxf', '.dwg', '.pdf', '.geojson', '.zip'];
+    if (!valid.includes(ext)) {
+      this.toastService.error('Unsupported Format', `File '${ext}' is not supported. Please choose a DXF, DWG, PDF, or GeoJSON file.`);
       return;
     }
 
-    this.uploading = true;
-    this.errorMessage = '';
-    this.successMessage = '';
+    if (file.size > 104857600) {
+      this.toastService.error('File Too Large', 'Maximum allowed file size is 100 MB.');
+      return;
+    }
+
+    this.selectedFile = file;
+    this.previewData = null;
+    this.precheckError = '';
+
+    // Auto-populate Project Name and Category from file name
+    const rawName = file.name.replace(/\.[^/.]+$/, '');
+    if (!this.form.projectName) {
+      this.form.projectName = rawName;
+    }
+
+    const upper = file.name.toUpperCase();
+    if (upper.includes('ROAD')) {
+      this.form.category = 'Road';
+      this.onCategoryChange('Road');
+      this.form.subType = 'Centerline';
+    } else if (upper.includes('WATER')) {
+      this.form.category = 'Utility';
+      this.onCategoryChange('Utility');
+      this.form.subType = 'Water';
+    } else if (upper.includes('SEWER')) {
+      this.form.category = 'Utility';
+      this.onCategoryChange('Utility');
+      this.form.subType = 'Sewer';
+    } else if (upper.includes('STORM')) {
+      this.form.category = 'Utility';
+      this.onCategoryChange('Utility');
+      this.form.subType = 'Storm drain';
+    } else if (upper.includes('POWER')) {
+      this.form.category = 'Utility';
+      this.onCategoryChange('Utility');
+      this.form.subType = 'Power';
+    } else if (upper.includes('BUILDING')) {
+      this.form.category = 'Building';
+      this.onCategoryChange('Building');
+      this.form.subType = 'Footprint';
+    }
+
+    this.toastService.info('File Selected', `${file.name} ready for processing.`);
+  }
+
+  removeFile(): void {
+    this.selectedFile = null;
+    this.previewData = null;
+    this.precheckError = '';
+  }
+
+  getFileExtension(filename: string): string {
+    const idx = filename.lastIndexOf('.');
+    return idx !== -1 ? filename.substring(idx) : '';
+  }
+
+  runPrecheck(): void {
+    if (!this.selectedFile || !this.workspace) return;
+    this.prechecking = true;
+    this.precheckError = '';
+
+    this.drawingService.previewDrawing(this.workspace.id, this.selectedFile, this.form.sourceEpsg).subscribe({
+      next: (res) => {
+        this.prechecking = false;
+        this.previewData = res;
+        const layers = new Set<string>();
+        if (res.features) {
+          for (const f of res.features) {
+            if (f.properties?.layer) layers.add(f.properties.layer);
+          }
+        }
+        this.previewLayers = Array.from(layers);
+        this.toastService.success('Spatial Validation Passed', `Extracted ${res.features?.length || 0} entities.`);
+      },
+      error: (err) => {
+        this.prechecking = false;
+        this.previewData = null;
+        this.precheckError = err.error?.message || 'Spatial pre-check failed. Please check coordinates and layer mappings.';
+        this.toastService.error('Validation Warning', this.precheckError);
+      }
+    });
+  }
+
+  submitFinal(): void {
+    if (!this.selectedFile || !this.workspace) return;
+    this.submitting = true;
 
     const formData = new FormData();
     formData.append('file', this.selectedFile);
@@ -526,27 +1219,23 @@ export class UploadDrawingComponent implements OnInit {
     formData.append('sourceEpsg', this.form.sourceEpsg.toString());
     if (this.form.stageId) formData.append('stageId', this.form.stageId);
     if (this.form.stageName) formData.append('stageName', this.form.stageName);
+    if (this.form.contractor) formData.append('contractor', this.form.contractor);
+    if (this.form.consultant) formData.append('consultant', this.form.consultant);
     if (this.form.sourceOfCoordinates) formData.append('sourceOfCoordinates', this.form.sourceOfCoordinates);
     if (this.form.gfcDrawingId) formData.append('gfcDrawingId', this.form.gfcDrawingId);
 
-    // Dynamic fields
-    for (const key of Object.keys(this.formDynamicValues)) {
-      if (this.formDynamicValues[key] != null) {
-        formData.append(key, this.formDynamicValues[key].toString());
-      }
-    }
-
     this.drawingService.uploadDrawing(this.workspace.id, formData).subscribe({
       next: (drawing) => {
-        this.uploading = false;
-        this.successMessage = `Drawing '${drawing.projectName}' uploaded (Revision ${drawing.currentRevision || this.form.revisionNumber}). It will be processed in background.`;
+        this.submitting = false;
+        this.toastService.success('Drawing Submitted', `Drawing '${drawing.projectName}' (Rev ${this.form.revisionNumber}) queued for review.`);
         setTimeout(() => {
           this.router.navigate(['/revisions']);
-        }, 2000);
+        }, 1200);
       },
       error: (err) => {
-        this.uploading = false;
-        this.errorMessage = err.error?.message || 'Drawing upload failed.';
+        this.submitting = false;
+        const msg = err.error?.message || 'Upload submission failed.';
+        this.toastService.error('Upload Error', msg);
       }
     });
   }

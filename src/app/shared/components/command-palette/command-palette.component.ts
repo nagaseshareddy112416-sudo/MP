@@ -445,3 +445,4 @@ export class CommandPaletteComponent {
     this.router.navigateByUrl(path);
   }
 }
+

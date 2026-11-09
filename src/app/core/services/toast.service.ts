@@ -47,3 +47,4 @@ export class ToastService {
     this.toasts.update(current => current.filter(t => t.id !== id));
   }
 }
+

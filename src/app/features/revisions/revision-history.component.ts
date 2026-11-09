@@ -14,6 +14,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { DrawingService } from '../../core/services/drawing.service';
 import { WorkspaceService } from '../../core/services/workspace.service';
 import { AuthService } from '../../core/services/auth.service';
+import { ToastService } from '../../core/services/toast.service';
 import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
 
 @Component({
@@ -353,6 +354,7 @@ export class RevisionHistoryComponent implements OnInit {
     private drawingService: DrawingService,
     private workspaceService: WorkspaceService,
     public authService: AuthService,
+    private toastService: ToastService,
     private router: Router
   ) {}
 
@@ -415,9 +417,11 @@ export class RevisionHistoryComponent implements OnInit {
         if (pendingRev) {
           this.drawingService.reviewRevision(this.workspace!.id, drawing.id, pendingRev.id, true, 'Approved').subscribe({
             next: (res) => {
-              this.message = `Drawing '${drawing.projectName}' has been approved and is now active on the map!`;
+              this.toastService.success('Drawing Approved', `Drawing '${drawing.projectName}' is now active on the Master Plan.`);
               this.loadDrawings();
-              setTimeout(() => this.message = '', 5000);
+            },
+            error: (err) => {
+              this.toastService.error('Approval Error', err.error?.message || 'Failed to approve revision.');
             }
           });
         }
@@ -440,10 +444,12 @@ export class RevisionHistoryComponent implements OnInit {
 
     this.drawingService.reviewRevision(this.workspace.id, this.selectedDrawing.id, revision.id, approve, comments).subscribe({
       next: (res) => {
-        this.message = res.message;
+        this.toastService.success(approve ? 'Revision Approved' : 'Revision Rejected', res.message);
         this.loadDrawings();
         this.viewRevisions(this.selectedDrawing!);
-        setTimeout(() => this.message = '', 4000);
+      },
+      error: (err) => {
+        this.toastService.error('Review Error', err.error?.message || 'Failed to update revision status.');
       }
     });
   }
@@ -459,12 +465,11 @@ export class RevisionHistoryComponent implements OnInit {
         if (this.selectedDrawing?.id === drawing.id) {
           this.selectedDrawing = null;
         }
-        this.message = res.message || `Drawing '${drawing.projectName}' was deleted from the database.`;
+        this.toastService.success('Drawing Deleted', res.message || `Drawing '${drawing.projectName}' was removed from the database.`);
         this.loadDrawings();
-        setTimeout(() => this.message = '', 5000);
       },
       error: (err) => {
-        this.message = err.error?.message || 'Failed to delete drawing.';
+        this.toastService.error('Deletion Error', err.error?.message || 'Failed to delete drawing.');
       }
     });
   }
