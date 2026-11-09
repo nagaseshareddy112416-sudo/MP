@@ -102,8 +102,8 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
                     <button mat-stroked-button (click)="viewRevisions(d)">
                       <mat-icon>history</mat-icon> Revisions
                     </button>
-                    <button mat-icon-button color="warn" (click)="deleteDrawing(d)" matTooltip="Delete drawing from database">
-                      <mat-icon>delete_outline</mat-icon>
+                    <button mat-stroked-button color="warn" (click)="deleteDrawing(d)" matTooltip="Delete drawing from database">
+                      <mat-icon>delete</mat-icon> Delete
                     </button>
                   </div>
                 </td>
@@ -150,7 +150,10 @@ import { Drawing, DrawingRevision, Workspace } from '../../core/models/models';
               </div>
             </div>
 
-            <div class="modal-footer">
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+              <button mat-flat-button color="warn" (click)="deleteDrawing(selectedDrawing)">
+                <mat-icon>delete_forever</mat-icon> Delete Entire Drawing
+              </button>
               <button mat-button (click)="selectedDrawing = null">Close</button>
             </div>
           </mat-card-content>
@@ -446,13 +449,16 @@ export class RevisionHistoryComponent implements OnInit {
   }
 
   deleteDrawing(drawing: Drawing): void {
-    if (!this.workspace) return;
-    if (!confirm(`Are you sure you want to permanently delete drawing '${drawing.projectName}' and all its data from the database?`)) {
+    if (!this.workspace || !drawing) return;
+    if (!confirm(`Are you sure you want to permanently delete drawing '${drawing.projectName}' and all its extracted features from the database?`)) {
       return;
     }
 
     this.drawingService.deleteDrawing(this.workspace.id, drawing.id).subscribe({
       next: (res) => {
+        if (this.selectedDrawing?.id === drawing.id) {
+          this.selectedDrawing = null;
+        }
         this.message = res.message || `Drawing '${drawing.projectName}' was deleted from the database.`;
         this.loadDrawings();
         setTimeout(() => this.message = '', 5000);

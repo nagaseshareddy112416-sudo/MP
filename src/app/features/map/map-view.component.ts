@@ -130,6 +130,9 @@ register(proj4);
         <button mat-button color="primary" (click)="selectDrawingFilter(null)" class="clear-btn">
           <mat-icon>zoom_out_map</mat-icon> Show All
         </button>
+        <button mat-button color="warn" (click)="deleteCurrentDrawing()" class="clear-btn" matTooltip="Delete this drawing from database">
+          <mat-icon>delete</mat-icon> Delete Drawing
+        </button>
       </div>
 
       <!-- Map Div -->
@@ -204,6 +207,11 @@ register(proj4);
             <span *ngIf="selectedFeatureProps.constructionStatus" class="tag-status">
               {{ selectedFeatureProps.constructionStatus }}
             </span>
+          </div>
+          <div class="popup-actions" *ngIf="selectedFeatureProps.drawingId" style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee; display: flex; justify-content: flex-end;">
+            <button mat-button color="warn" (click)="deleteDrawingFromMap(selectedFeatureProps.drawingId, selectedFeatureProps.projectName)">
+              <mat-icon>delete</mat-icon> Delete Drawing
+            </button>
           </div>
         </div>
       </div>
@@ -841,6 +849,40 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
       queryParamsHandling: 'replace'
     });
     this.applyDrawingFilterOrZoom();
+  }
+
+  deleteCurrentDrawing(): void {
+    if (this.targetDrawingId) {
+      this.deleteDrawingFromMap(this.targetDrawingId, this.selectedDrawingName || 'Drawing');
+    }
+  }
+
+  deleteDrawingFromMap(drawingId: string, projectName: string): void {
+    const ws = this.authService.activeWorkspace();
+    if (!ws || !drawingId) return;
+
+    if (!confirm(`Are you sure you want to permanently delete drawing '${projectName}' and all its features from the database?`)) {
+      return;
+    }
+
+    this.drawingService.deleteDrawing(ws.id, drawingId).subscribe({
+      next: () => {
+        if (this.targetDrawingId === drawingId) {
+          this.targetDrawingId = null;
+          this.selectedDrawingName = '';
+          this.router.navigate([], {
+            relativeTo: this.route,
+            queryParams: {},
+            queryParamsHandling: 'replace'
+          });
+        }
+        this.selectedFeatureProps = null;
+        this.refreshFeatures();
+      },
+      error: (err) => {
+        alert(err.error?.message || 'Failed to delete drawing.');
+      }
+    });
   }
 
   onCompareModeChange(mode: 'all' | 'gfc' | 'asbuilt'): void {
