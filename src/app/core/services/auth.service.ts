@@ -17,23 +17,54 @@ export class AuthService {
     this.loadSession();
   }
 
+  private getStorageItem(key: string): string | null {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return window.localStorage.getItem(key);
+      }
+    } catch {
+      // Ignore security or storage errors
+    }
+    return null;
+  }
+
+  private setStorageItem(key: string, value: string): void {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(key, value);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  private removeStorageItem(key: string): void {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
   private loadSession(): void {
-    const session = localStorage.getItem('gfc_session');
+    const session = this.getStorageItem('gfc_session');
     if (session) {
       try {
         const user: LoginResponse = JSON.parse(session);
         this.currentUser.set(user);
       } catch (e) {
-        localStorage.removeItem('gfc_session');
+        this.removeStorageItem('gfc_session');
       }
     }
 
-    const savedWs = localStorage.getItem('gfc_active_workspace');
+    const savedWs = this.getStorageItem('gfc_active_workspace');
     if (savedWs) {
       try {
         this.activeWorkspace.set(JSON.parse(savedWs));
       } catch (e) {
-        localStorage.removeItem('gfc_active_workspace');
+        this.removeStorageItem('gfc_active_workspace');
       }
     }
   }
@@ -42,7 +73,7 @@ export class AuthService {
     return this.http.post<LoginResponse>(`${this.apiUrl}/login`, credentials).pipe(
       tap(res => {
         this.currentUser.set(res);
-        localStorage.setItem('gfc_session', JSON.stringify(res));
+        this.setStorageItem('gfc_session', JSON.stringify(res));
       })
     );
   }
@@ -54,13 +85,13 @@ export class AuthService {
   logout(): void {
     this.currentUser.set(null);
     this.activeWorkspace.set(null);
-    localStorage.removeItem('gfc_session');
-    localStorage.removeItem('gfc_active_workspace');
+    this.removeStorageItem('gfc_session');
+    this.removeStorageItem('gfc_active_workspace');
   }
 
   setActiveWorkspace(workspace: Workspace): void {
     this.activeWorkspace.set(workspace);
-    localStorage.setItem('gfc_active_workspace', JSON.stringify(workspace));
+    this.setStorageItem('gfc_active_workspace', JSON.stringify(workspace));
   }
 
   getToken(): string | null {

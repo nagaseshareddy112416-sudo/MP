@@ -1,6 +1,6 @@
 export const environment = {
   production: false,
-  apiUrl: '<API_URL_E_G_HTTP_LOCALHOST_5000_API>',
+  apiUrl: 'http://localhost:5000/api',
   defaultWorkspace: {
     centerLon: 80.516,
     centerLat: 16.513,
@@ -20,4 +20,3 @@ export const environment = {
     }
   }
 };
-

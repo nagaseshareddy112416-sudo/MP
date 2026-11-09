@@ -1,0 +1,25 @@
+# Changelog - MP-Web (Frontend)
+
+All notable changes to the frontend Angular application will be documented in this file.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.2.0] - 2026-11-09 - Phase 1: Stabilization
+### Added
+- Multi-stage production `Dockerfile` with Node.js 20 build and Nginx Alpine runtime.
+- Nginx configuration (`nginx.conf`) supporting SPA routing (`try_files $uri /index.html`).
+- GitHub Actions CI workflow in `.github/workflows/ci.yml` with automated test and production build checks.
+- `src/environments/environment.example.ts` configuration template.
+- Root documentation: `CHANGELOG.md`, `assumptions.md`, and `KNOWN_LIMITATIONS.md`.
+
+### Fixed
+- Fixed Vitest unit test runner initialization by correcting test target in `src/app/app.spec.ts` to `AppComponent` with router and HTTP testing providers.
+- Fixed SSR/Node test environment `localStorage` crashes by implementing defensive storage checks in `auth.service.ts`.
+- Fixed Windows drive letter casing issue during Vitest execution.
+- Added 401 Unauthorized handling in `auth.interceptor.ts` to smoothly redirect expired sessions to the login view with return URL.
+
+### Verified
+- `npx ng test --watch=false` passed 1 of 1 test suites (100% pass).
+- `npx ng build --configuration production` succeeded with bundle budget checks.
