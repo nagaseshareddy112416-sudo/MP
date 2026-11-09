@@ -55,10 +55,10 @@ register(proj4);
     <div class="map-wrapper">
       <!-- 2D / 3D Switch Banner -->
       <div class="dimension-toggle-banner">
-        <button class="dimension-btn" [class.active]="!is3dMode" (click)="is3dMode = false">
+        <button class="dimension-btn" [class.active]="!is3dMode" (click)="set3dMode(false)">
           <mat-icon>map</mat-icon> 2D Master Plan
         </button>
-        <button class="dimension-btn" [class.active]="is3dMode" (click)="is3dMode = true">
+        <button class="dimension-btn" [class.active]="is3dMode" (click)="set3dMode(true)">
           <mat-icon>view_in_ar</mat-icon> 3D Digital Twin
         </button>
       </div>
@@ -67,6 +67,9 @@ register(proj4);
       <div *ngIf="is3dMode" class="full-3d-viewport">
         <app-digital-twin-3d></app-digital-twin-3d>
       </div>
+
+      <!-- 2D Map Viewport Container (Always in DOM for OpenLayers canvas context) -->
+      <div #mapContainer class="map-container" [style.display]="is3dMode ? 'none' : 'block'"></div>
 
       <!-- 2D OpenLayers Viewport & Controls (When in 2D Mode) -->
       <ng-container *ngIf="!is3dMode">
@@ -238,9 +241,6 @@ register(proj4);
           <mat-icon>delete</mat-icon> Delete
         </button>
       </div>
-
-      <!-- Map Viewport Container -->
-      <div #mapContainer class="map-container"></div>
 
       <!-- Live Coordinates HUD (Bottom Right) -->
       <div class="coordinates-hud" *ngIf="mouseCoords">
@@ -867,6 +867,15 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.map) {
       this.map.setTarget(undefined);
+    }
+  }
+
+  set3dMode(mode: boolean): void {
+    this.is3dMode = mode;
+    if (!mode && this.map) {
+      setTimeout(() => {
+        this.map.updateSize();
+      }, 50);
     }
   }
 
