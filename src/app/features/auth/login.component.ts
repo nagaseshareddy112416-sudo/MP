@@ -123,7 +123,11 @@ export class LoginComponent {
     private authService: AuthService,
     private workspaceService: WorkspaceService,
     private router: Router
-  ) {}
+  ) {
+    if (window.location.search.includes('expired=true')) {
+      this.errorMessage = 'Your login session has expired. Please sign in again.';
+    }
+  }
 
   onLogin(): void {
     this.errorMessage = '';

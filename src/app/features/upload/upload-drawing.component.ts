@@ -350,6 +350,9 @@ export class UploadDrawingComponent implements OnInit {
           this.form.stageId = defaultStage.id;
           this.form.stageName = defaultStage.name;
         }
+      },
+      error: () => {
+        this.errorMessage = 'Failed to load workspace drawing stages. Please refresh or sign in again.';
       }
     });
   }
@@ -386,6 +389,9 @@ export class UploadDrawingComponent implements OnInit {
           this.form.category = this.uniqueCategories[0];
           this.onCategoryChange(this.form.category);
         }
+      },
+      error: () => {
+        this.errorMessage = 'Failed to load workspace categories. Please refresh or sign in again.';
       }
     });
   }
@@ -500,6 +506,12 @@ export class UploadDrawingComponent implements OnInit {
 
   submitUpload(): void {
     if (!this.selectedFile || !this.workspace) return;
+
+    if (!this.form.category || !this.form.subType) {
+      this.errorMessage = 'Please select a Category and Sub-Type before submitting.';
+      return;
+    }
+
     this.uploading = true;
     this.errorMessage = '';
     this.successMessage = '';
