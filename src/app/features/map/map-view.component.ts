@@ -37,6 +37,7 @@ import { WorkspaceService } from '../../core/services/workspace.service';
 import { DrawingService } from '../../core/services/drawing.service';
 import { ToastService } from '../../core/services/toast.service';
 import { environment } from '../../../environments/environment';
+import { DigitalTwin3dComponent } from './digital-twin-3d.component';
 import { Clash, ReferenceLayer } from '../../core/models/models';
 
 proj4.defs('EPSG:32644', '+proj=utm +zone=44 +datum=WGS84 +units=m +no_defs');
@@ -47,10 +48,28 @@ register(proj4);
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule, MatButtonModule, MatIconModule, MatButtonToggleModule,
-    MatCardModule, MatTooltipModule, MatCheckboxModule, MatFormFieldModule, MatInputModule, MatSelectModule
+    MatCardModule, MatTooltipModule, MatCheckboxModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    DigitalTwin3dComponent
   ],
   template: `
     <div class="map-wrapper">
+      <!-- 2D / 3D Switch Banner -->
+      <div class="dimension-toggle-banner">
+        <button class="dimension-btn" [class.active]="!is3dMode" (click)="is3dMode = false">
+          <mat-icon>map</mat-icon> 2D Master Plan
+        </button>
+        <button class="dimension-btn" [class.active]="is3dMode" (click)="is3dMode = true">
+          <mat-icon>view_in_ar</mat-icon> 3D Digital Twin
+        </button>
+      </div>
+
+      <!-- 3D Digital Twin Viewport (When in 3D Mode) -->
+      <div *ngIf="is3dMode" class="full-3d-viewport">
+        <app-digital-twin-3d></app-digital-twin-3d>
+      </div>
+
+      <!-- 2D OpenLayers Viewport & Controls (When in 2D Mode) -->
+      <ng-container *ngIf="!is3dMode">
       <!-- Floating Top-Left Controls: Base Map & Measurement Tools -->
       <div class="map-overlay-panel top-left">
         <div class="gfc-card control-card">
@@ -326,6 +345,7 @@ register(proj4);
           </mat-card-content>
         </mat-card>
       </div>
+      </ng-container>
     </div>
   `,
   styles: [`
@@ -334,6 +354,58 @@ register(proj4);
       width: 100%;
       height: calc(100vh - var(--header-height));
       overflow: hidden;
+    }
+
+    .dimension-toggle-banner {
+      position: absolute;
+      top: var(--space-4);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 30;
+      display: flex;
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-pill);
+      padding: 4px;
+      box-shadow: var(--shadow-floating);
+      gap: 4px;
+    }
+
+    .dimension-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 6px 16px;
+      border-radius: var(--radius-pill);
+      font-size: var(--text-xs);
+      font-weight: 600;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+
+      mat-icon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
+
+      &.active {
+        background: var(--color-brand);
+        color: #ffffff;
+      }
+
+      &:hover:not(.active) {
+        background: var(--bg-surface-subtle);
+        color: var(--text-primary);
+      }
+    }
+
+    .full-3d-viewport {
+      width: 100%;
+      height: 100%;
+      position: relative;
     }
 
     .map-container {
@@ -744,6 +816,7 @@ export class MapViewComponent implements OnInit, AfterViewInit, OnDestroy {
   showFeatures = true;
   showClashes = true;
   compareMode: 'all' | 'gfc' | 'asbuilt' = 'all';
+  is3dMode = false;
 
   featureCount = 0;
   clashCount = 0;
